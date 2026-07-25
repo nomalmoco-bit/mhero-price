@@ -42,6 +42,12 @@
      960px 이상 or 강제 desktop이면 section에 CSS 2단 칼럼(multicol).
 ■ 데이터 스키마: v4와 동일 + item.match(null 가능), settings.layout.
   ensureDefaults()가 누락 필드 소급 — 새 필드는 반드시 여기에도 추가.
+■ ★실측 확정(2026-07-25 Actions 로그):
+  - item_name은 '포장된 ...'(거래소 매물 표시명)이 아니라 기본 아이템명.
+    존재하지 않는 이름 → HTTP 400 / 존재하지만 24h 거래 10건 미만 → 200+빈배열.
+    이 차이를 이름 검증기(collect.mjs probeNames)로 활용한다.
+  - 가격 필드는 average_price (골드 조회에서 확인).
+  - '골드'는 정상 동작(scale 10 → 1천만골 기준).
 ■ ★확정 사실: 넥슨 API는 access-control-allow-origin: https://openapi.nexon.com
   만 내려준다 → 브라우저(github.io 등)에서의 직접 호출은 항상 차단된다.
   실사용 데이터 경로는 GitHub Actions 수집기 → data/prices.json → mergeRemote.
@@ -201,7 +207,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <span id="saveDot">저장 대기</span>
   </div>
   <h1>망전 <b>시세 노트</b></h1>
-  <div class="sub" id="subLine">v5.3 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v5.4 · 2026-07-25 — 로딩 중…</div>
   <nav>
     <button class="on" data-tab="chart">시세</button>
     <button data-tab="browse">탐색</button>
@@ -335,7 +341,7 @@ img.itic{border-radius:5px; object-fit:cover}
 
   <div class="card">
     <h2>직접 추가</h2>
-    <div class="hint" style="margin-top:0">카탈로그에 없는 종목(새 아바타 등)은 설정 탭 → 종목 관리에서 거래소 이름("포장된 ...")으로 직접 추가하세요.</div>
+    <div class="hint" style="margin-top:0">카탈로그에 없는 종목(새 아바타 등)은 설정 탭 → 종목 관리에서 <b>기본 아이템명</b>으로 직접 추가하세요. 거래소 매물에 보이는 "포장된 ○○"이 아니라 "○○" 형태예요 — 틀린 이름은 조회 시 400 오류가 납니다.</div>
   </div>
 </section>
 
@@ -447,8 +453,8 @@ img.itic{border-radius:5px; object-fit:cover}
     <div id="itemList"></div>
     <label>표시 이름</label>
     <input id="niName" placeholder="예: 강화의 룬">
-    <label>API 검색명 ("포장된 ..." 주의)</label>
-    <input id="niApi" placeholder="예: 포장된 강화의 룬">
+    <label>API 검색명 (거래소 표시명 아님 — 기본 아이템명)</label>
+    <input id="niApi" placeholder="예: 강화의 룬">
     <label>레코드 필터 (선택 — 인챈트 종류 등 부분 문자열)</label>
     <input id="niMatch" placeholder="예: 격노">
     <div class="row">
@@ -509,7 +515,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v5.3 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v5.4 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -517,14 +523,14 @@ const ENCHS=['격노','뒤틀린','원한','진격','추적자','한탄','광기
 '찬미','일격','승자의','복수의','고대의','우아한','잊혀진'];
 const CATALOG=[
  {cat:'재화', name:'골드 시세(1천만골)', apiName:'골드', unit:'krw', scale:10, ok:1},
- {cat:'룬·소모품', name:'강화의 룬', apiName:'포장된 강화의 룬', ok:1},
- {cat:'룬·소모품', name:'추출의 룬', apiName:'포장된 추출의 룬', ok:1},
- {cat:'룬·소모품', name:'귀속 해제 포션', apiName:'포장된 귀속 해제 포션', ok:1},
- {cat:'룬·소모품', name:'고급 강화의 비약', apiName:'포장된 고급 강화의 비약'},
- {cat:'룬·소모품', name:'강화의 비약', apiName:'포장된 강화의 비약'},
- {cat:'룬·소모품', name:'게브네의 강화석', apiName:'포장된 게브네의 강화석'},
- {cat:'아바타', name:'슬링샷 세트', apiName:'포장된 스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트', ok:1}
-].concat(ENCHS.map(n=>({cat:'인챈트', name:n, apiName:'인챈트 스크롤 (무기한)', match:n, ok:1})))
+ {cat:'룬·소모품', name:'강화의 룬', apiName:'강화의 룬', ok:1},
+ {cat:'룬·소모품', name:'추출의 룬', apiName:'추출의 룬', ok:1},
+ {cat:'룬·소모품', name:'귀속 해제 포션', apiName:'귀속 해제 포션'},
+ {cat:'룬·소모품', name:'고급 강화의 비약', apiName:'고급 강화의 비약'},
+ {cat:'룬·소모품', name:'강화의 비약', apiName:'강화의 비약'},
+ {cat:'룬·소모품', name:'게브네의 강화석', apiName:'게브네의 강화석'},
+ {cat:'아바타', name:'슬링샷 세트', apiName:'스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트'}
+].concat(ENCHS.map(n=>({cat:'인챈트', name:n, apiName:'인챈트 스크롤 (무기한)', match:n})))
  .concat([
  {cat:'재료', name:'계승석 조각', apiName:'계승석 조각'},
  {cat:'재료', name:'계승 원석', apiName:'계승 원석'},
@@ -670,12 +676,14 @@ async function gistPull(silent){
 }
 
 /* ═══════ 시드/스키마 ═══════ */
+/* ★실측: API의 item_name은 거래소 '매물 표시명(포장된 ...)'이 아니라 기본 아이템명이다.
+   존재하지 않는 이름은 HTTP 400, 존재하지만 24h 거래 10건 미만이면 200+빈배열. */
 function apiNameGuess(name){
-  if(/강화의 룬/.test(name)) return '포장된 강화의 룬';
-  if(/추출의 룬|추룬/.test(name)) return '포장된 추출의 룬';
-  if(/슬링샷/.test(name)) return '포장된 스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트';
+  if(/강화의 룬/.test(name)) return '강화의 룬';
+  if(/추출의 룬|추룬/.test(name)) return '추출의 룬';
+  if(/슬링샷/.test(name)) return '스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트';
   if(/굴비|골드/.test(name)) return '골드';
-  return name.replace(/\(.*?\)/g,'').trim();
+  return name.replace(/^포장된\s*/,'').replace(/\(.*?\)/g,'').trim();
 }
 function seed(){
   return {
@@ -693,10 +701,10 @@ function seed(){
        target:250000000, alertHigh:null, targetSupply:10, priceKey:null, entries:[
         {d:'2026-07-19', p:437000000, s:4, m:'실측: 30일 평균 4.05억', src:'man'},
         {d:'2026-07-24', p:470000000, s:null, m:'매물 마름 · 챈 화제', src:'man'}]},
-      {id:'i2', name:'강화의 룬', apiName:'포장된 강화의 룬', match:null, unit:'gold', scale:1, img:'',
+      {id:'i2', name:'강화의 룬', apiName:'강화의 룬', match:null, unit:'gold', scale:1, img:'',
        target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[
         {d:'2026-07-24', p:9890000, s:null, m:'즉구 최저', src:'man'}]},
-      {id:'i3', name:'추출의 룬', apiName:'포장된 추출의 룬', match:null, unit:'gold', scale:1, img:'',
+      {id:'i3', name:'추출의 룬', apiName:'추출의 룬', match:null, unit:'gold', scale:1, img:'',
        target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[
         {d:'2026-07-24', p:45800000, s:null, m:'즉구 최저', src:'man'}]},
       {id:'i4', name:'골드 시세(1천만골)', apiName:'골드', match:null, unit:'krw', scale:10, img:'',
@@ -887,10 +895,13 @@ function ingestRecords(it, recs, rawJ){
   if(!recs.length) return {n:0};
   if(!it.img&&rawJ){ const im=detectImg(rawJ); if(im) it.img=im; }
   if(!it.priceKey){
-    const cands=detectPriceKeys(recs[0]);
-    if(!cands.length) return {n:0, err:'가격 필드 없음'};
-    if(cands.length===1||cands[0].prio===0) it.priceKey=cands[0].key;
-    else return {n:0, pick:cands.slice(0,6), itemId:it.id};
+    if('average_price' in recs[0]) it.priceKey='average_price';   // ★실측 확정 필드
+    else{
+      const cands=detectPriceKeys(recs[0]);
+      if(!cands.length) return {n:0, err:'가격 필드 없음'};
+      if(cands.length===1||cands[0].prio===0) it.priceKey=cands[0].key;
+      else return {n:0, pick:cands.slice(0,6), itemId:it.id};
+    }
   }
   const dk=detectDate(recs[0]), ck=detectCount(recs[0]);
   const byDay={};
