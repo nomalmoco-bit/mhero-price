@@ -40,6 +40,10 @@
      (인챈트 16종 = 호출 1회). 스캔 결과는 메모리 전용(저장 안 함).
   5) 레이아웃: settings.layout 'auto|mobile|desktop' → body.L-* 클래스.
      960px 이상 or 강제 desktop이면 section에 CSS 2단 칼럼(multicol).
+■ 넓은 화면(≥1000px 또는 layout='desktop'): #tab-chart는 목적형 그리드
+  (좌 2.1fr = 히어로+차트 / 우 1fr = 관심종목 레일(sticky)+지표),
+  그 외 카드는 전체 폭. 차트는 viewBox 가로를 700→1180으로 바꿔
+  '세로로 늘어나는' 대신 실제로 가로를 쓴다. resize 시 디바운스 후 재렌더.
 ■ UI 구조(v6.1): 정보 위계를 증권앱식으로 재배치.
   시세탭 = 히어로(선택종목 가격·등락·일중레인지·신호) → 차트 → 관심종목
   리스트 → 지표 → 수집 → 기록 → 이벤트. 탭바는 하단 고정(엄지 도달).
@@ -47,6 +51,13 @@
   renderBoard는 표가 아니라 .wl 리스트 행(아이콘·이름·스파크라인·가격·등락).
   색 규칙: 상승=빨강(--up), 하락=파랑(--dn) — 한국 시장 관례. 강조색은 금화
   앰버(--gold) 하나만 쓰고 나머지는 채도를 낮춘다.
+■ 골드는 종목이 아니라 환율로 다룬다. market-history의 골드 체결 기록은
+  1주에 수 건뿐이라 일별 차트가 듬성듬성한 것이 정상(버그 아님).
+  대신 gold-market-buy-top-30 / sell-top-30(최근 1주 상위 30 물량)으로
+  수급 편향을 계산해 방향을 읽는다. 스키마 확정:
+    {"buy_gold":[{cairde_name, buy_gold}]} / {"sell_gold":[{cairde_name, sell_gold}]}
+    (문서 예시는 total_buy_gold/total_sell_gold — 둘 다 허용)
+  조회할 때마다 S.goldFlow에 {d,buy,sell} 하루 1건을 남겨 추이를 그린다.
 ■ 수집 깊이: 응답은 최근 1주지만 페이지당 500건이라, 거래가 많은 종목은
   5페이지(2,500건)로 2일치밖에 못 덮는다(골드 실측). 그래서 최초 수집
   (entries에 src:'api'가 하나도 없을 때) 또는 FORCE_DEEP이면 커서 끝까지
@@ -153,12 +164,42 @@ nav button{flex:1; background:none; border:0; color:var(--dim); cursor:pointer;
 nav button::before{content:attr(data-ico); font-size:17px; line-height:1}
 nav button.on{color:var(--gold)}
 
-main{padding:14px 14px calc(var(--nav-h) + 28px); max-width:600px; margin:0 auto}
-body.L-desktop main{max-width:1180px}
-@media(min-width:960px){ body.L-auto main{max-width:1180px}
-  body.L-auto section:not(.hide){columns:2; column-gap:14px} }
-body.L-desktop section:not(.hide){columns:2; column-gap:14px}
-body.L-mobile section:not(.hide){columns:1 !important}
+main{padding:14px 14px calc(var(--nav-h) + 28px); max-width:620px; margin:0 auto}
+
+/* ── 넓은 화면: 흘려보내는 2단(multicol) 대신 역할이 정해진 그리드 ──
+   좌: 시세 히어로 + 차트(가로를 최대한 씀) / 우: 관심종목 레일 + 지표
+   나머지 카드는 전체 폭. 화면이 넓을수록 차트가 커지는 게 목적. */
+@media(min-width:1000px){
+  body.L-auto main, body.L-desktop main{
+    max-width:min(1560px, 96vw); padding:18px 18px calc(var(--nav-h) + 32px);
+  }
+  body.L-auto #tab-chart, body.L-desktop #tab-chart{
+    display:grid; grid-template-columns:minmax(0,2.1fr) minmax(300px,1fr);
+    gap:16px; align-items:start;
+  }
+  body.L-auto #tab-chart > *, body.L-desktop #tab-chart > *{ margin-bottom:0 }
+  body.L-auto #tab-chart .hero, body.L-desktop #tab-chart .hero{ grid-column:1; grid-row:1 }
+  body.L-auto #tab-chart .chartCard, body.L-desktop #tab-chart .chartCard{ grid-column:1; grid-row:2 }
+  body.L-auto #tab-chart .wlCard, body.L-desktop #tab-chart .wlCard{
+    grid-column:2; grid-row:1 / span 2; position:sticky; top:76px; max-height:calc(100vh - 120px); overflow:auto }
+  body.L-auto #tab-chart .statCard, body.L-desktop #tab-chart .statCard{ grid-column:2 }
+  body.L-auto #tab-chart .goldCard, body.L-desktop #tab-chart .goldCard{ grid-column:2 }
+  body.L-auto #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard),
+  body.L-desktop #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard){ grid-column:1 / -1 }
+  body.L-auto #tab-chart .statCard .grid, body.L-desktop #tab-chart .statCard .grid{ grid-template-columns:1fr }
+  /* 나머지 탭은 균형 잡힌 2단 */
+  body.L-auto #tab-browse, body.L-auto #tab-sim, body.L-auto #tab-data,
+  body.L-desktop #tab-browse, body.L-desktop #tab-sim, body.L-desktop #tab-data{
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start }
+  body.L-auto #tab-sim > *, body.L-desktop #tab-sim > *,
+  body.L-auto #tab-browse > *, body.L-desktop #tab-browse > *,
+  body.L-auto #tab-data > *, body.L-desktop #tab-data > *{ margin-bottom:0 }
+  /* 하단 탭바는 넓은 화면에서 가운데 정렬된 알약 형태로 */
+  nav{left:50%; transform:translateX(-50%); width:min(560px,90vw); bottom:16px;
+    border:1px solid var(--line); border-radius:99px; height:56px; overflow:hidden}
+}
+body.L-mobile main{max-width:620px !important; padding:14px 14px calc(var(--nav-h) + 28px) !important}
+body.L-mobile section{display:block !important}
 section .card,section .hero{break-inside:avoid}
 
 /* ── 카드 ── */
@@ -331,7 +372,7 @@ img.itic{border-radius:8px; object-fit:cover}
       <button id="layoutBtn">화면:자동</button>
     </div>
   </div>
-  <div class="sub" id="subLine">v6.2 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v6.5 · 2026-07-25 — 로딩 중…</div>
 </header>
 <nav>
   <button class="on" data-tab="chart" data-ico="📈">시세</button>
@@ -365,7 +406,7 @@ img.itic{border-radius:8px; object-fit:cover}
     <div class="heroSig" id="sigBox"></div>
   </div>
 
-  <div class="card">
+  <div class="card chartCard">
     <h2 id="chartTitle">차트</h2>
     <div class="seg" id="periodSeg">
       <button data-p="7">7일</button><button data-p="30">1개월</button>
@@ -382,14 +423,47 @@ img.itic{border-radius:8px; object-fit:cover}
     <div class="evLegend" id="evLegend"></div>
   </div>
 
-  <div class="card">
+  <div class="card wlCard">
     <h2>관심종목</h2>
     <div id="board"></div>
   </div>
 
-  <div class="card">
+  <div class="card statCard">
     <h2>지표 <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0" id="statPeriodLbl"></span></h2>
     <div class="grid" id="statGrid"></div>
+  </div>
+
+  <div class="card goldCard">
+    <h2>골드 환율 · 수급</h2>
+    <div class="heroSub" style="margin-top:0">
+      <span class="num" id="gxRate" style="font-size:26px;font-weight:800;letter-spacing:-.03em">—</span>
+      <span class="num" id="gxChg"></span>
+    </div>
+    <div class="hint" style="margin-top:2px">1천만 골드당 원화 · 기록된 최신 시세</div>
+
+    <div style="margin-top:16px">
+      <div class="rangeLbl" style="margin:0 0 6px">
+        <span style="color:var(--up)">매수 <span class="num" id="gxBuy">—</span></span>
+        <span style="color:var(--dim)">상위 30 수급</span>
+        <span style="color:var(--dn)">매도 <span class="num" id="gxSell">—</span></span>
+      </div>
+      <div class="rangeBar" id="gxBar" style="background:var(--surface2); overflow:hidden">
+        <div id="gxFill" style="height:100%;width:50%;background:var(--up);border-radius:99px"></div>
+      </div>
+      <div id="gxVerdict" class="heroSig" style="margin-top:10px"></div>
+      <div id="gxTrend"></div>
+    </div>
+
+    <button class="btn sm ghost" id="btnGold">수급 새로고침</button>
+    <div id="gxStat" class="hint"></div>
+    <details>
+      <summary>상위 30 상세</summary>
+      <div class="row" style="gap:12px">
+        <div><div class="hint" style="margin:0 0 4px;color:var(--up)">매수 상위</div><table id="gxBuyT"></table></div>
+        <div><div class="hint" style="margin:0 0 4px;color:var(--dn)">매도 상위</div><table id="gxSellT"></table></div>
+      </div>
+    </details>
+    <div class="hint">골드는 종목이라기보다 <b>환율</b>이에요. 체결 기록이 드물어 차트 점이 띄엄띄엄 찍히는 대신, 상위 30명의 매수·매도 물량으로 방향을 읽습니다. <b>매수 우위 = 골드 수요 강세 = 굴비 시세(원화값) 상승 압력.</b></div>
   </div>
 
   <div class="card">
@@ -690,7 +764,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v6.2 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v6.5 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -914,7 +988,8 @@ function ensureDefaults(s){
   s.settings=Object.assign({fee:5, apiKey:'', period:'all', lastFetch:0, lastBackup:0,
     autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false}, s.settings||{});
   s.events=s.events||[];
-  s.deletedEv=s.deletedEv||[];   // 사용자가 지운 자동 이벤트 서명(d|t) — 재추가 방지
+  s.deletedEv=s.deletedEv||[];
+  s.goldFlow=s.goldFlow||[];   // [{d,buy,sell}] 골드 수급 추이   // 사용자가 지운 자동 이벤트 서명(d|t) — 재추가 방지
   s.items=(s.items||[]).map(it=>Object.assign(
     {apiName:apiNameGuess(it.name||''), match:null, unit:'gold', scale:1, img:'',
      target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[]}, it));
@@ -1279,6 +1354,120 @@ function renderPick(pick){
       box.innerHTML=''; recordCurve(); saveData(); renderAll(); };
     box.appendChild(b);
   });
+}
+
+/* ═══════ 골드 환율 · 수급 (환율처럼 다루는 전용 뷰) ═══════
+   /heroes/v2/marketplace/gold-market-buy-top-30, .../sell-top-30
+   = 최근 1주 골드 구매/판매 상위 30명의 물량. 응답 필드명이 미확정이라
+   레코드에서 '가장 큰 숫자 필드'를 물량으로, 문자열 필드를 이름으로 추론한다.
+   ※ 골드 체결 기록(market-history)은 주당 수 건뿐이라 일별 차트가 듬성듬성한 게
+     정상이다. 그 공백을 이 수급 지표가 메운다. */
+const GOLD_TOP_BUY='https://open.api.nexon.com/heroes/v2/marketplace/gold-market-buy-top-30';
+const GOLD_TOP_SELL='https://open.api.nexon.com/heroes/v2/marketplace/gold-market-sell-top-30';
+let goldTop={buy:null, sell:null, at:0};
+/* ★실측 스키마 확정
+   buy : {"buy_gold":[{cairde_name, buy_gold | total_buy_gold}]}
+   sell: {"sell_gold":[{cairde_name, sell_gold | total_sell_gold}]}
+   (문서 예시는 total_* 이지만 실제 응답은 buy_gold/sell_gold — 둘 다 받는다) */
+function parseGoldTop(j, side){
+  const arr = (j && (j[side+'_gold'] || j[side])) || findRecords(j);
+  if(!Array.isArray(arr)) return [];
+  return arr.map(r=>({
+    n: r.cairde_name || '',
+    v: Number(r[side+'_gold'] ?? r['total_'+side+'_gold'] ?? 0) || 0
+  })).filter(x=>x.v>0);
+}
+async function fetchGoldTop(){
+  const stat=document.getElementById('gxStat'), btn=document.getElementById('btnGold');
+  btn.disabled=true; stat.textContent='수급 조회 중…';
+  const get=async (url,side)=>{
+    const r=await fetch(url,{headers:{'x-nxopen-api-key':apiKeyNow()}});
+    if(!r.ok){ let m='HTTP '+r.status;
+      try{ const j=await r.json(); if(j.error&&j.error.message) m+=' '+j.error.message; }catch(e){}
+      throw new Error(m); }
+    return parseGoldTop(await r.json(), side);
+  };
+  try{
+    const [b,sl]=await Promise.all([get(GOLD_TOP_BUY,'buy'), get(GOLD_TOP_SELL,'sell')]);
+    goldTop={buy:b, sell:sl, at:Date.now()};
+    // 수급 추이 기록 — 하루 1건. 스냅샷보다 '방향이 바뀌는 순간'이 중요하다
+    const d=today();
+    const B=b.reduce((x,y)=>x+y.v,0), Sv=sl.reduce((x,y)=>x+y.v,0);
+    S.goldFlow=S.goldFlow||[];
+    const i=S.goldFlow.findIndex(x=>x.d===d);
+    const rec={d, buy:B, sell:Sv};
+    if(i>-1) S.goldFlow[i]=rec; else S.goldFlow.push(rec);
+    if(S.goldFlow.length>120) S.goldFlow=S.goldFlow.slice(-120);
+    saveData();
+    stat.textContent='최근 1주 누적 기준 · '+new Date().toLocaleString('ko-KR')+' 조회';
+  }catch(e){ stat.innerHTML='<span class="warn">조회 실패: '+e.message+'</span>'; }
+  btn.disabled=false;
+  renderGold();
+}
+function renderGold(){
+  const g=goolbiItem();
+  const rateEl=document.getElementById('gxRate'), chgEl=document.getElementById('gxChg');
+  if(g&&g.entries.length){
+    const es=sortedEntries(g), last=es[es.length-1], prev=es.length>1?es[es.length-2]:null;
+    rateEl.textContent=Math.round(last.p).toLocaleString()+'원';
+    chgEl.innerHTML= prev? fmtPct(pct(last.p,prev.p))+' <span style="color:var(--dim);font-size:11px">'+last.d.slice(5)+' 기준</span>'
+      : '<span style="color:var(--dim);font-size:11px">'+last.d.slice(5)+' 기준</span>';
+  }else{ rateEl.textContent='—'; chgEl.textContent=''; }
+
+  const sum=a=>a? a.reduce((x,y)=>x+(y.v||0),0):0;
+  const B=sum(goldTop.buy), Sv=sum(goldTop.sell), T=B+Sv;
+  document.getElementById('gxBuy').textContent= goldTop.buy? fmtG(B):'—';
+  document.getElementById('gxSell').textContent= goldTop.sell? fmtG(Sv):'—';
+  const ratio= T? B/T*100 : 50;
+  document.getElementById('gxFill').style.width=ratio.toFixed(1)+'%';
+  const vd=document.getElementById('gxVerdict');
+  if(!T){ vd.innerHTML='<div>수급 새로고침을 눌러 최근 1주 매수·매도 물량을 불러오세요.</div>'; }
+  else{
+    const skew=ratio-50;
+    let cls='', msg, mine;
+    if(skew>=8){ cls='hot';
+      msg='<b>매수 우위 '+Math.round(ratio)+' : '+Math.round(100-ratio)+'</b> — 골드를 사가는 쪽이 강해요. 골드의 원화 가치에 상승 압력.';
+      mine='골드를 <b>사려는 입장이면 불리</b>합니다. 서둘러 사기보다 균형으로 돌아올 때를 기다리는 게 나아요.';
+    } else if(skew<=-8){ cls='cool';
+      msg='<b>매도 우위 '+Math.round(100-ratio)+' : '+Math.round(ratio)+'</b> — 골드를 파는 쪽이 강해요. 골드의 원화 가치에 하락 압력.';
+      mine='골드를 <b>사려는 입장이면 유리</b>합니다. 캐시템 되팔이로 골드를 모으기 좋은 구간.';
+    } else {
+      msg='<b>균형 구간 '+Math.round(ratio)+' : '+Math.round(100-ratio)+'</b> — 뚜렷한 방향이 없어요.';
+      mine='방향이 잡힐 때까지 관찰만 하는 편이 나아요.';
+    }
+    // 큰손 집중도 — 1~2명이 시장을 흔드는지 확인
+    const topShare=(arr,tot)=> (arr&&arr.length&&tot)? Math.round(arr[0].v/tot*100):0;
+    const conc='큰손 집중도 — 매수 1위가 전체의 '+topShare(goldTop.buy,B)+'%, 매도 1위가 '+topShare(goldTop.sell,Sv)+'%';
+    vd.innerHTML='<div class="'+cls+'">'+msg+'</div><div>'+mine+'</div>'
+      +'<div>'+conc+'. 한 명 비중이 크면 그 사람이 멈추는 순간 방향도 바뀝니다.</div>'
+      +'<div>상위 30명 합계라 전체 시장이 아니라 <b>큰손들의 방향</b>이에요.</div>';
+  }
+  // 수급 추이 스파크라인(매수 비중 %)
+  const fl=S.goldFlow||[];
+  const sp=document.getElementById('gxTrend');
+  if(fl.length>=2){
+    const share=fl.map(f=>(f.buy+f.sell)? f.buy/(f.buy+f.sell)*100:50);
+    const W=300,H=34;
+    let d=''; share.forEach((v,i)=>{ const x=i/(share.length-1)*W;
+      const y=H-2-(v-30)/40*(H-4);
+      d+=(d?' L':'M')+x.toFixed(1)+' '+Math.max(2,Math.min(H-2,y)).toFixed(1); });
+    const mid=H-2-(50-30)/40*(H-4);
+    sp.innerHTML='<div class="hint" style="margin:12px 0 4px">매수 비중 추이 ('+fl.length+'회 기록 · 가운데 선 = 50:50)</div>'
+      +'<svg viewBox="0 0 '+W+' '+H+'" style="width:100%">'
+      +'<line x1="0" y1="'+mid.toFixed(1)+'" x2="'+W+'" y2="'+mid.toFixed(1)+'" stroke="#26324A" stroke-dasharray="4 4"/>'
+      +'<path d="'+d+'" fill="none" stroke="#E9B44C" stroke-width="1.8"/></svg>';
+  } else sp.innerHTML='<div class="hint" style="margin-top:12px">수급을 여러 번 조회하면 여기에 추이가 그려져요. 방향이 <b>바뀌는 순간</b>이 진짜 신호입니다.</div>';
+
+  const tbl=(el,arr,color,tot)=>{
+    const t=document.getElementById(el);
+    if(!arr||!arr.length){ t.innerHTML='<tr><td class="hint">—</td></tr>'; return; }
+    t.innerHTML=arr.slice(0,10).map((r,i)=>
+      '<tr><td style="width:20px;color:var(--dim);font-size:11px">'+(i+1)+'</td>'
+      +'<td style="font-size:12px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.n||'—')+'</td>'
+      +'<td class="num" style="color:'+color+';font-weight:700;text-align:right">'+fmtG(r.v)+'</td></tr>').join('');
+  };
+  tbl('gxBuyT', goldTop.buy, 'var(--up)', B);
+  tbl('gxSellT', goldTop.sell, 'var(--dn)', Sv);
 }
 
 /* ═══════ 접근자 ═══════ */
@@ -1756,10 +1945,15 @@ function renderChart(){
     document.getElementById('evLegend').textContent=''; renderLegend(mode,cmp); return; }
   if(selIdx!=null&&selIdx>=es.length) selIdx=null;
 
-  /* ── 레이아웃: 가격영역 / 거래활성 밴드 / 날짜축을 분리해 정보가 겹치지 않게 ── */
-  const W=700;
-  const priceH = S.settings.chartBig? 340 : 240;
-  const volH = 48, gap = 10, xLab = 22, padT = 16, padR = 74, padL = 12;
+  /* ── 레이아웃: 가격영역 / 거래활성 밴드 / 날짜축을 분리해 정보가 겹치지 않게 ──
+     넓은 화면에서는 viewBox 가로를 늘려(=가로로 더 긴 비율) 좌우 공간을 실제로 쓴다. */
+  const wide = S.settings.layout==='desktop'
+    || (S.settings.layout!=='mobile' && window.innerWidth>=1000);
+  const W = wide? 1180 : 700;
+  const priceH = wide? (S.settings.chartBig? 460 : 330)
+                     : (S.settings.chartBig? 340 : 240);
+  const volH = wide? 64 : 48, gap = 10, xLab = 22, padT = 16,
+        padR = wide? 90 : 74, padL = wide? 16 : 12;
   const H = padT + priceH + gap + volH + xLab;
   const volTop = padT + priceH + gap;
 
@@ -1873,7 +2067,7 @@ function renderChart(){
   if(seriesB) line(seriesB,'#4D8DFF',2,false);
   line(seriesA,'#E9B44C',2.4,mode!=='cmp');
   // 점(데이터가 많으면 생략, 적으면 표시)
-  if(es.length<=40) seriesA.forEach((p,i)=>{
+  if(es.length<=(wide?90:40)) seriesA.forEach((p,i)=>{
     g+='<circle cx="'+X(new Date(p.d).getTime()).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="3" fill="#0E1420" stroke="#E9B44C" stroke-width="2"/>'; });
   // 거래 활성 밴드
   const sup=es.filter(e=>e.s!=null&&e.s!=='');
@@ -1881,14 +2075,14 @@ function renderChart(){
   g+='<text x="'+(W-padR+6)+'" y="'+(volTop+12)+'" fill="#5F6C85" font-size="10">활성</text>';
   if(sup.length){
     const sMax=Math.max(...sup.map(e=>+e.s),it.targetSupply||0,1);
-    const bw=Math.max(3,Math.min(14,(W-padL-padR)/Math.max(es.length,1)*0.55));
+    const bw=Math.max(3,Math.min(wide?20:14,(W-padL-padR)/Math.max(es.length,1)*0.55));
     es.forEach((e,i)=>{ if(e.s==null||e.s==='') return;
       const h=Math.max(2,(+e.s)/sMax*(volH-6));
       g+='<rect x="'+(xi(i)-bw/2).toFixed(1)+'" y="'+(volTop+volH-h).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+'" rx="2" fill="#3A4A6B"/>'; });
     g+='<text x="'+(W-padR+6)+'" y="'+(volTop+volH)+'" fill="#5F6C85" font-size="10">'+sMax+'</text>';
   }
   // 날짜축 라벨 (양끝 + 중간)
-  const nLab=Math.min(4,es.length);
+  const nLab=Math.min(wide?8:4,es.length);
   for(let i=0;i<nLab;i++){
     const idx= nLab===1?0:Math.round(i*(es.length-1)/(nLab-1));
     const x=xi(idx);
@@ -2283,7 +2477,7 @@ function applyLayout(){
 function renderAll(){
   renderHeaderMeta(); renderBoard(); renderChart(); renderStats();
   renderEventAnalysis(); renderHist(); renderSim(); renderItemList(); renderEvents();
-  renderBrowse();
+  renderGold(); renderBrowse();
   document.getElementById('apiKey').value=S.settings.apiKey||'';
   document.getElementById('feeRate').value=S.settings.fee;
   document.getElementById('autoSel').value=S.settings.autoRefresh?'1':'0';
@@ -2309,11 +2503,12 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>switchTab(b.dat
 document.getElementById('layoutBtn').onclick=()=>{
   const order=['auto','mobile','desktop'];
   S.settings.layout=order[(order.indexOf(S.settings.layout||'auto')+1)%3];
-  applyLayout(); saveData();
+  applyLayout(); saveData(); renderChart();
 };
 document.getElementById('btnRefresh').onclick=refreshAll;
 document.getElementById('btnDeep').onclick=()=>{ FORCE_DEEP=true; refreshAll(); };
 document.getElementById('btnScan').onclick=scanAll;
+document.getElementById('btnGold').onclick=fetchGoldTop;
 document.getElementById('catSearch').oninput=e=>{ browseQ=e.target.value.trim(); renderBrowse(); };
 document.querySelectorAll('#sortSeg button').forEach(b=>
   b.onclick=()=>{ browseSort=b.dataset.s; renderBrowse(); });
@@ -2350,6 +2545,10 @@ document.querySelectorAll('#periodSeg button').forEach(b=>
 document.getElementById('cmpSel').onchange=e=>{ S.settings.cmpId=e.target.value; selIdx=null; saveData(); renderChart(); };
 document.getElementById('krwBtn').onclick=()=>{ S.settings.krwMode=!S.settings.krwMode; selIdx=null; saveData(); renderChart(); };
 document.getElementById('bigBtn').onclick=()=>{ S.settings.chartBig=!S.settings.chartBig; saveData(); renderChart(); };
+/* 창 크기가 바뀌면 viewBox 비율이 달라지므로 다시 그린다(디바운스) */
+let rzT=null;
+window.addEventListener('resize',()=>{ clearTimeout(rzT);
+  rzT=setTimeout(()=>{ if(S) renderChart(); },200); });
 document.getElementById('apiKey').onchange=e=>{ S.settings.apiKey=e.target.value.trim(); saveData(); };
 document.getElementById('feeRate').onchange=e=>{ S.settings.fee=parseFloat(e.target.value)||0; saveData(); renderSim(); };
 document.getElementById('autoSel').onchange=e=>{ S.settings.autoRefresh=e.target.value==='1'; saveData(); };
