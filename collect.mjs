@@ -1,7 +1,9 @@
 // 망전 시세 자동 수집기 — GitHub Actions에서 하루 2회 실행
 // (유지보수 노트) 출력 형식은 툴의 mergeRemote()와 계약:
-//   data/prices.json = { updated, items:[{ apiName, scale, priceKeyUsed,
-//                                          entries:[{d,p,s}] }] }
+//   data/prices.json = { updated, items:[{ apiName, match?, scale,
+//                                          priceKeyUsed, entries:[{d,p,s}] }] }
+// match = 레코드 부분 문자열 필터(인챈트 종류 구분용). 툴의 item.match와
+// 같은 값이어야 병합된다(키 = apiName + match).
 // 형식을 바꾸면 망전_시세_노트.html의 mergeRemote()도 함께 고칠 것.
 // API 제약: 최근 1주 / 페이지당 500(next_cursor) / 24시간 10건 미만 거래
 // 아이템은 빈 응답이 정상(예: 슬링샷). 키는 GitHub Secret NEXON_API_KEY.
@@ -71,16 +73,25 @@ async function fetchAll(apiName) {
 }
 
 let changed = false;
+// 같은 apiName은 1회만 호출해 공유(인챈트 16종 = 호출 1회)
+const cache = {};
 for (const c of cfg.items) {
   const scale = c.scale || 1;
-  let recs = [];
-  try { recs = await fetchAll(c.apiName); }
-  catch (e) { console.log('✕', c.apiName, e.message); continue; }
-  let ent = db.items.find(x => x.apiName === c.apiName);
-  if (!ent) { ent = { apiName: c.apiName, scale, priceKeyUsed: null, entries: [] }; db.items.push(ent); }
-  if (!recs.length) { console.log('·', c.apiName, '거래 기록 없음(저유동/이름 확인)'); continue; }
+  const label = c.name || (c.apiName + (c.match ? '/' + c.match : ''));
+  if (!(c.apiName in cache)) {
+    try { cache[c.apiName] = await fetchAll(c.apiName); }
+    catch (e) { cache[c.apiName] = { err: e.message }; }
+    await sleep(300);
+  }
+  const got = cache[c.apiName];
+  if (got && got.err) { console.log('✕', label, got.err); continue; }
+  let recs = got;
+  if (c.match) recs = recs.filter(r => { try { return JSON.stringify(r).includes(c.match); } catch (e) { return false; } });
+  let ent = db.items.find(x => x.apiName === c.apiName && (x.match || '') === (c.match || ''));
+  if (!ent) { ent = { apiName: c.apiName, match: c.match || null, scale, priceKeyUsed: null, entries: [] }; db.items.push(ent); }
+  if (!recs.length) { console.log('·', label, '거래 기록 없음(저유동/이름/필터 확인)'); continue; }
   if (!ent.priceKeyUsed) ent.priceKeyUsed = c.priceKey || detectPriceKey(recs[0]);
-  if (!ent.priceKeyUsed) { console.log('✕', c.apiName, '가격 필드를 못 찾음'); continue; }
+  if (!ent.priceKeyUsed) { console.log('✕', label, '가격 필드를 못 찾음'); continue; }
   const dk = detectDateKey(recs[0]), ck = detectCountKey(recs[0]);
   const byDay = {};
   for (const r of recs) {
@@ -102,7 +113,7 @@ for (const c of cfg.items) {
   }
   ent.entries.sort((a, b) => (a.d < b.d ? -1 : 1));
   if (added || updated) changed = true;
-  console.log('✓', c.apiName, '신규', added, '갱신', updated, '(키:', ent.priceKeyUsed + ')');
+  console.log('✓', label, '신규', added, '갱신', updated, '(키:', ent.priceKeyUsed + ')');
 }
 
 if (changed || !fs.existsSync(OUT)) {
