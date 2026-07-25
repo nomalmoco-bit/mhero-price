@@ -51,6 +51,10 @@
   골드는 100만골 단위 → scale=10 (1천만골당).
 ■ 원격 수집 계약: data/prices.json {items:[{apiName,match?,scale,
   entries:[{d,p,s}]}]} ↔ mergeRemote()가 apiName+match로 병합.
+  data/events.json {events:[{d,t,u,kind:'auto'}]} ↔ mergeEvents()가 병합.
+  넥슨 이벤트 공지 스키마(확정): event_notice[] = {title,url,notice_id,
+  date_event_start,date_event_end,ongoing_flag} — 수집기가 시작일/종료일을
+  각각 달력 항목으로 만든다. 사용자가 지운 항목은 S.deletedEv(d|t)로 차단.
   저장소 collect.mjs(v2, match 지원)와 세트로 수정할 것.
 ════════════════════════════════════════════════════════════════
 -->
@@ -283,6 +287,7 @@ img.itic{border-radius:5px; object-fit:cover}
       <div><label>이벤트</label><input id="evName" placeholder="예: 신캐 출시"></div>
     </div>
     <button class="btn sm ghost" id="btnEv">이벤트 추가</button>
+    <div class="hint">넥슨 이벤트 공지는 자동수집이 <b>data/events.json</b>에 모아주고, 열 때 자동으로 달력에 들어와요(<span class="badge bBlue">자동</span> 표시). 지우면 다시 안 올라옵니다.</div>
   </div>
 
   <div class="card">
@@ -719,6 +724,7 @@ function ensureDefaults(s){
   s.settings=Object.assign({fee:5, apiKey:'', period:'all', lastFetch:0, lastBackup:0,
     autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto'}, s.settings||{});
   s.events=s.events||[];
+  s.deletedEv=s.deletedEv||[];   // 사용자가 지운 자동 이벤트 서명(d|t) — 재추가 방지
   s.items=(s.items||[]).map(it=>Object.assign(
     {apiName:apiNameGuess(it.name||''), match:null, unit:'gold', scale:1, img:'',
      target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[]}, it));
@@ -920,6 +926,31 @@ async function loadRemoteRaw(){
     return (j&&Array.isArray(j.items))? j:null;
   }catch(e){ return null; }
 }
+/* 자동 수집된 이벤트 공지 병합 (data/events.json, 수집기 collectNotices와 세트)
+   계약: {updated, source, events:[{d,t,u,kind:'auto'}]}
+   같은 날짜+제목이면 건너뛴다. 사용자가 지운 이벤트는 deletedEv에 기록해
+   다음 병합 때 되살아나지 않게 한다. */
+async function mergeEvents(){
+  const base=remoteUrlNow(); if(!base) return null;
+  const url=base.replace(/[^/]*$/,'events.json');
+  try{
+    const r=await fetch(url,{cache:'no-store'});
+    if(!r.ok) return null;
+    const j=await r.json();
+    if(!j||!Array.isArray(j.events)) return null;
+    const dead=S.deletedEv||[];
+    let n=0;
+    j.events.forEach(e=>{
+      if(!e||!e.d||!e.t) return;
+      const sig=e.d+'|'+e.t;
+      if(dead.indexOf(sig)>-1) return;
+      if(S.events.some(x=>x.d===e.d&&x.t===e.t)) return;
+      S.events.push({d:e.d, t:e.t, u:e.u||'', src:'auto'});
+      n++;
+    });
+    return n? ('📅 이벤트 공지 '+n+'건 자동 추가') : null;
+  }catch(e){ return null; }
+}
 async function mergeRemote(){
   const url=remoteUrlNow();
   if(!url) return null;
@@ -949,6 +980,7 @@ async function refreshAll(){
   btn.disabled=true; btn.textContent='조회 중…';
   const lines=[];
   const rm=await mergeRemote(); if(rm) lines.push(rm);
+  const em=await mergeEvents(); if(em) lines.push(em);
   // 브라우저 직접 호출 가능 여부를 1회만 확인(넥슨 API는 자기 도메인만 CORS 허용)
   let blocked=false;
   const probe=S.items.find(x=>x.apiName);
@@ -1666,9 +1698,14 @@ function renderEvents(){
   const box=document.getElementById('evList'); box.innerHTML='';
   [...S.events].sort((a,b)=>a.d<b.d?-1:1).forEach(e=>{
     const r=document.createElement('div'); r.className='itemRow';
-    r.innerHTML='<div class="nm" style="font-weight:600;font-size:13px">'+e.d+' · '+e.t+'</div>';
+    const link= e.u? ' <a href="'+e.u+'" target="_blank" rel="noopener" style="color:var(--dn)">원문</a>':'';
+    const bd= e.src==='auto'? ' <span class="badge bBlue">자동</span>':'';
+    r.innerHTML='<div class="nm" style="font-weight:600;font-size:13px">'+e.d+' · '+e.t+bd+link+'</div>';
     const del=document.createElement('button'); del.className='del'; del.textContent='✕';
-    del.onclick=()=>{ S.events=S.events.filter(x=>!(x.d===e.d&&x.t===e.t)); saveData(); renderAll(); };
+    del.onclick=()=>{
+      S.events=S.events.filter(x=>!(x.d===e.d&&x.t===e.t));
+      if(e.src==='auto'){ S.deletedEv=S.deletedEv||[]; S.deletedEv.push(e.d+'|'+e.t); }
+      saveData(); renderAll(); };
     r.appendChild(del); box.appendChild(r);
   });
   if(!S.events.length) box.innerHTML='<div class="hint">이벤트 없음</div>';
@@ -1920,7 +1957,8 @@ function bootUI(){
   } else if(S.settings.remoteUrl){
     (async()=>{
       const rm=await mergeRemote();
-      if(rm){ document.getElementById('fetchStat').innerHTML=rm;
+      const em=await mergeEvents();
+      if(rm||em){ document.getElementById('fetchStat').innerHTML=[rm,em].filter(Boolean).join('<br>');
         const msgs=checkOrders();
         if(msgs.length) document.getElementById('fetchStat').innerHTML+='<br>'+msgs.join('<br>');
         recordCurve(); saveData(); renderAll(); }
