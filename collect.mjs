@@ -97,7 +97,15 @@ for (const c of cfg.items) {
   const got = cache[c.apiName];
   if (got && got.err) { console.log('✕', label, got.err); continue; }
   let recs = got;
-  if (c.match) recs = recs.filter(r => { try { return JSON.stringify(r).includes(c.match); } catch (e) { return false; } });
+  // 인챈트 종류는 item_option의 preset 필드로 정확히 구분(실측 스키마)
+  if (c.match) {
+    const opt = r => { const o = r && r.item_option; return !!o && (
+      o.prefix_enchant_preset_1 === c.match || o.suffix_enchant_preset_1 === c.match ||
+      o.prefix_enchant_preset_2 === c.match || o.suffix_enchant_preset_2 === c.match); };
+    const byOpt = recs.filter(opt);
+    recs = byOpt.length ? byOpt
+      : recs.filter(r => { try { return JSON.stringify(r).includes(c.match); } catch (e) { return false; } });
+  }
   let ent = db.items.find(x => x.apiName === c.apiName && (x.match || '') === (c.match || ''));
   if (!ent) { ent = { apiName: c.apiName, match: c.match || null, scale, priceKeyUsed: null, entries: [] }; db.items.push(ent); }
   if (!recs.length) { console.log('·', label, '거래 기록 없음(저유동/이름/필터 확인)'); continue; }
@@ -112,16 +120,21 @@ for (const c of cfg.items) {
     if (typeof p !== 'number') continue;
     let d = new Date().toISOString().slice(0, 10);
     if (dk) { const m = String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if (m) d = m[0]; }
-    if (!byDay[d]) byDay[d] = { sum: 0, n: 0, cnt: 0 };
+    if (!byDay[d]) byDay[d] = { sum: 0, n: 0, cnt: 0, lo: Infinity, hi: -Infinity };
     byDay[d].sum += p; byDay[d].n++;
     byDay[d].cnt += (ck && typeof r[ck] === 'number') ? r[ck] : 1;
+    if (typeof r.min_price === 'number' && r.min_price > 0) byDay[d].lo = Math.min(byDay[d].lo, r.min_price);
+    if (typeof r.max_price === 'number') byDay[d].hi = Math.max(byDay[d].hi, r.max_price);
   }
   let added = 0, updated = 0;
   for (const d in byDay) {
+    // 응답은 시간당 스냅샷 → 하루치 p는 시간평균들의 평균, s는 거래가 잡힌 시간 수
     const p = Math.round(byDay[d].sum / byDay[d].n * scale);
     const e = { d, p, s: byDay[d].cnt };
+    if (byDay[d].lo < Infinity) e.lo = Math.round(byDay[d].lo * scale);
+    if (byDay[d].hi > -Infinity) e.hi = Math.round(byDay[d].hi * scale);
     const i = ent.entries.findIndex(x => x.d === d);
-    if (i > -1) { if (ent.entries[i].p !== p || ent.entries[i].s !== e.s) { ent.entries[i] = e; updated++; } }
+    if (i > -1) { if (ent.entries[i].p !== p || ent.entries[i].s !== e.s || ent.entries[i].lo !== e.lo) { ent.entries[i] = e; updated++; } }
     else { ent.entries.push(e); added++; }
   }
   ent.entries.sort((a, b) => (a.d < b.d ? -1 : 1));
