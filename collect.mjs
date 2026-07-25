@@ -17,6 +17,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 if (!KEY) { console.error('NEXON_API_KEY 시크릿이 없습니다.'); process.exit(1); }
 
 const cfg = JSON.parse(fs.readFileSync('items.json', 'utf8'));
+const BASE = 'https://open.api.nexon.com';
 const OUT = 'data/prices.json';
 let db = { updated: '', items: [] };
 if (fs.existsSync(OUT)) { try { db = JSON.parse(fs.readFileSync(OUT, 'utf8')); } catch (e) {} }
@@ -124,3 +125,71 @@ if (changed || !fs.existsSync(OUT)) {
 } else {
   console.log('변경 없음 — 저장 생략');
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   이벤트 공지 수집 → data/events.json
+   확정 스키마(사용자 제공):
+     { "event_notice": [ { title, url, notice_id,
+         date_event_start:"2023-12-14T08:28:35Z", date_event_end, ongoing_flag } ] }
+   경로가 미확정이라 CANDIDATES를 순서대로 시도하고, 200이 뜨는 첫 경로를 쓴다.
+   items.json에 "notices": ["/heroes/v1/..."] 를 넣으면 그 경로만 쓴다(권장 — 확정되면 고정).
+   출력 계약(툴 mergeEvents와 세트): {updated, source, events:[{d,t,u,kind:'auto'}]}
+   ══════════════════════════════════════════════════════════════ */
+const NOTICE_CANDIDATES = [
+  '/heroes/v1/notice-event',
+  '/heroes/v2/notice-event',
+  '/heroes/v1/event-notice',
+  '/heroes/v1/notice/event'
+];
+function ymd(v) {
+  if (typeof v !== 'string') return null;
+  const m = v.match(/\d{4}-\d{2}-\d{2}/);
+  return m ? m[0] : null;
+}
+async function tryNotice(path) {
+  const url = path.startsWith('http') ? path : BASE + path;
+  const r = await fetch(url, { headers: { 'x-nxopen-api-key': KEY } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  const arr = Array.isArray(j.event_notice) ? j.event_notice : findRecords(j);
+  if (!Array.isArray(arr)) throw new Error('형식 불일치');
+  return arr;
+}
+async function collectNotices() {
+  const paths = (Array.isArray(cfg.notices) && cfg.notices.length) ? cfg.notices : NOTICE_CANDIDATES;
+  let arr = null, used = null;
+  for (const p of paths) {
+    try { arr = await tryNotice(p); used = p; console.log('✓ 공지 경로:', p, '(' + arr.length + '건)'); break; }
+    catch (e) { console.log('· 공지 경로 실패', p, e.message); }
+    await sleep(300);
+  }
+  if (!arr) { console.log('✕ 이벤트 공지: 사용 가능한 경로를 못 찾음 — items.json의 notices에 정확한 경로를 넣으세요'); return; }
+
+  const out = [];
+  for (const rec of arr) {
+    const t = rec.title;
+    if (!t) continue;
+    const u = rec.url || '';
+    const s0 = ymd(rec.date_event_start), e0 = ymd(rec.date_event_end);
+    if (s0) out.push({ d: s0, t, u, kind: 'auto' });
+    if (e0 && e0 !== s0) out.push({ d: e0, t: t + ' 종료', u, kind: 'auto' });
+  }
+  if (!out.length) { console.log('· 이벤트 공지: 날짜가 있는 항목 없음'); return; }
+
+  const F = 'data/events.json';
+  let db2 = { updated: '', source: '', events: [] };
+  if (fs.existsSync(F)) { try { db2 = JSON.parse(fs.readFileSync(F, 'utf8')); } catch (e) {} }
+  if (!Array.isArray(db2.events)) db2.events = [];
+  let added = 0;
+  for (const e of out) {
+    if (!db2.events.some(x => x.d === e.d && x.t === e.t)) { db2.events.push(e); added++; }
+  }
+  db2.events.sort((a, b) => (a.d < b.d ? -1 : 1));
+  db2.updated = new Date().toISOString();
+  db2.source = used;
+  fs.mkdirSync('data', { recursive: true });
+  fs.writeFileSync(F, JSON.stringify(db2, null, 1));
+  console.log('이벤트 저장:', F, '신규', added, '총', db2.events.length);
+}
+await collectNotices();
