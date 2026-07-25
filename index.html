@@ -47,6 +47,19 @@
   entry.src: 'api'(수집) / 'man'(수동보정) / 'seed'(미리보기 1페이지 시드)
 ■ 데이터 스키마: v4와 동일 + item.match(null 가능), settings.layout.
   ensureDefaults()가 누락 필드 소급 — 새 필드는 반드시 여기에도 추가.
+■ ★시장이 둘이다(실측 확정):
+  (1) 인게임 거래소 — 골드 거래. 오픈 API market-history가 다루는 대상.
+      골드/인챈트 스크롤/와드네의 결정 등이 잡힌다.
+  (2) 넥슨마켓(market.nexon.com) — "포장된 ○○"(아바타·룬 등) 전용, 골드 표시.
+      게임 API에 아이템명 자체가 없어 400을 반환한다. 이름을 더 찾아도 소용없다.
+      → 탐색 탭의 parseMarket()이 목록 페이지 복사본을 파싱해 수동 기록한다.
+      SPA라 서버에서 긁을 수 없으므로 사용자 복붙이 유일한 경로.
+■ ★★시장이 둘로 나뉜다(실측 확정, 더 이상 이름 찾지 말 것):
+  1) 인게임 거래소 = Open API 대상. 골드/인챈트 스크롤/재료 등 기본 아이템.
+  2) 넥슨마켓(market.nexon.com) = '포장된 ○○'(아바타 세트·룬 포장본) 전용.
+     API에 아이템 자체가 없어 어떤 이름을 넣어도 HTTP 400이다.
+     → item.market=true, apiName='' 으로 두고 API 조회에서 제외.
+       기록은 탐색탭의 넥슨마켓 목록 붙여넣기(parseNxm)로 채운다.
 ■ ★응답 스키마 실측 확정(2026-07-18 데이터):
   item[] = {date_update(ISO, 시간단위 스냅샷), item_name, average_price,
             min_price, max_price, item_option{...}}, next_cursor
@@ -221,7 +234,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <span id="saveDot">저장 대기</span>
   </div>
   <h1>망전 <b>시세 노트</b></h1>
-  <div class="sub" id="subLine">v5.7 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v5.8 · 2026-07-25 — 로딩 중…</div>
   <nav>
     <button class="on" data-tab="chart">시세</button>
     <button data-tab="browse">탐색</button>
@@ -346,7 +359,7 @@ img.itic{border-radius:5px; object-fit:cover}
       <button data-s="vol">거래량순</button>
     </div>
     <table id="catTable"></table>
-    <div class="hint">✓=이름 검증됨 · ⚠=추정 이름(빈 응답이면 실제 거래소 이름으로 수정 필요). 인챈트는 API 규칙상 "인챈트 스크롤 (무기한)" 통합 조회 후 종류별로 걸러서 보여줍니다. 스캔 결과는 저장되지 않는 미리보기예요 — ★해야 기록이 쌓입니다.</div>
+    <div class="hint">★<b>중요</b>: 게임 API는 <b>인게임 거래소</b> 전용이에요. 아바타·"포장된 ○○"은 <b>넥슨마켓</b>이라는 다른 시장에서만 거래돼 여기 안 나옵니다 — 위의 📋 붙여넣기를 쓰세요.<br>✓=이름 검증됨 · ⚠=추정 이름(빈 응답이면 실제 이름 확인). 인챈트는 API 규칙상 "인챈트 스크롤 (무기한)" 통합 조회 후 종류별로 걸러서 보여줍니다. 스캔 결과는 저장되지 않는 미리보기예요 — ★해야 기록이 쌓입니다.</div>
   </div>
 
   <div class="card" id="prevCard">
@@ -354,6 +367,18 @@ img.itic{border-radius:5px; object-fit:cover}
     <div id="prevBody" class="hint" style="margin-top:0">위 목록에서 종목을 탭하면 여기서 1주 시세를 미리 볼 수 있어요.</div>
     <button class="btn sm ghost hide" id="btnPrevFetch">1주 시세 미리보기 조회</button>
     <button class="btn sm hide" id="btnFollow">★ 관심종목 추가</button>
+  </div>
+
+  <div class="card">
+    <h2>📋 넥슨마켓 목록 붙여넣기</h2>
+    <div class="hint" style="margin-top:0">
+      아바타·포장 아이템(포장된 ○○)은 <b>넥슨마켓</b>에서만 거래돼서 게임 API에 없어요.
+      market.nexon.com의 목록 페이지를 <b>전체 선택 → 복사</b>해서 여기 붙여넣으면
+      이름·최저가·매물수를 자동으로 뽑아 기록합니다.
+    </div>
+    <textarea id="mktIn" placeholder="넥슨마켓 목록 페이지를 통째로 복사해 붙여넣기"></textarea>
+    <button class="btn sm ghost" id="btnMkt">목록 분석</button>
+    <div id="mktOut"></div>
   </div>
 
   <div class="card">
@@ -365,8 +390,16 @@ img.itic{border-radius:5px; object-fit:cover}
   </div>
 
   <div class="card">
-    <h2>직접 추가</h2>
-    <div class="hint" style="margin-top:0">카탈로그에 없는 종목(새 아바타 등)은 설정 탭 → 종목 관리에서 <b>기본 아이템명</b>으로 직접 추가하세요. 거래소 매물에 보이는 "포장된 ○○"이 아니라 "○○" 형태예요 — 틀린 이름은 조회 시 400 오류가 납니다.</div>
+    <h2>🏪 넥슨마켓 목록 붙여넣기</h2>
+    <div class="hint" style="margin-top:0"><b>포장된 ○○(아바타·룬 포장본)은 게임 API에 없어요</b> — 넥슨마켓은 별개 시장이라 자동 수집이 불가능합니다(항상 400). 대신 market.nexon.com 목록 화면을 <b>전체 선택→복사</b>해서 여기 붙여넣으면 이름·가격·매물수를 한꺼번에 읽어 기록해요.</div>
+    <textarea id="nxmIn" placeholder="넥슨마켓 목록 페이지를 통째로 복사해서 붙여넣기"></textarea>
+    <div class="row">
+      <div><label>기록 날짜</label><input type="date" id="nxmDate"></div>
+      <div><label>이름 검색(선택)</label><input id="nxmQ" placeholder="예: 슬링샷"></div>
+    </div>
+    <button class="btn sm ghost" id="btnNxm">목록 읽기</button>
+    <div id="nxmStat" class="hint"></div>
+    <table id="nxmTable"></table>
   </div>
 </section>
 
@@ -542,7 +575,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v5.7 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v5.8 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -559,17 +592,14 @@ const ENCH_SUF=['물결','찬미','일격','강림','한탄','시련','사념','
 const ENCH_NAME='인챈트 스크롤';
 const CATALOG=[
  {cat:'재화', name:'골드 시세(1천만골)', apiName:'골드', unit:'krw', scale:10, ok:1},
- {cat:'룬·소모품', name:'강화의 룬', apiName:'강화의 룬', ok:1},
- {cat:'룬·소모품', name:'추출의 룬', apiName:'추출의 룬', ok:1},
- {cat:'룬·소모품', name:'귀속 해제 포션', apiName:'귀속 해제 포션'},
- {cat:'룬·소모품', name:'고급 강화의 비약', apiName:'고급 강화의 비약'},
- {cat:'룬·소모품', name:'강화의 비약', apiName:'강화의 비약'},
- {cat:'아바타', name:'슬링샷 세트', apiName:'스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트'}
+ {cat:'재료', name:'와드네의 결정', apiName:'와드네의 결정', ok:1},
+/* 아바타·포장 아이템은 넥슨마켓(별도 시장)에서만 거래되어 게임 API에 없다.
+   → 아래 '넥슨마켓 목록 붙여넣기'로 기록한다. */
 ].concat(ENCH_PRE.map(n=>({cat:'인챈트(접두)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
  .concat(ENCH_SUF.map(n=>({cat:'인챈트(접미)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
  .concat([
  {cat:'재료', name:'계승석 조각', apiName:'계승석 조각'},
- {cat:'재료', name:'와드네의 결정', apiName:'와드네의 결정'}
+ {cat:'재료', name:'계승 원석', apiName:'계승 원석'}
 ]);
 const catKey=c=>c.apiName+'|'+(c.match||'');
 
@@ -732,14 +762,14 @@ function seed(){
       {d:'2026-09-10', t:'골든타임 종료'}
     ],
     items:[
-      {id:'i1', name:'슬링샷 세트', apiName:apiNameGuess('슬링샷'), match:null, unit:'gold', scale:1, img:'',
+      {id:'i1', name:'포장된 스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트', apiName:'', market:true, match:null, unit:'gold', scale:1, img:'',
        target:250000000, alertHigh:null, targetSupply:10, priceKey:null, entries:[
         {d:'2026-07-19', p:437000000, s:4, m:'실측: 30일 평균 4.05억', src:'man'},
         {d:'2026-07-24', p:470000000, s:null, m:'매물 마름 · 챈 화제', src:'man'}]},
-      {id:'i2', name:'강화의 룬', apiName:'강화의 룬', match:null, unit:'gold', scale:1, img:'',
+      {id:'i2', name:'포장된 강화의 룬', apiName:'', market:true, match:null, unit:'gold', scale:1, img:'',
        target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[
         {d:'2026-07-24', p:9890000, s:null, m:'즉구 최저', src:'man'}]},
-      {id:'i3', name:'추출의 룬', apiName:'추출의 룬', match:null, unit:'gold', scale:1, img:'',
+      {id:'i3', name:'포장된 추출의 룬', apiName:'', market:true, match:null, unit:'gold', scale:1, img:'',
        target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[
         {d:'2026-07-24', p:45800000, s:null, m:'즉구 최저', src:'man'}]},
       {id:'i4', name:'골드 시세(1천만골)', apiName:'골드', match:null, unit:'krw', scale:10, img:'',
@@ -775,11 +805,15 @@ function ensureDefaults(s){
   /* ★저장된 데이터 소급 교정: 초기 버전이 '포장된 ○○'을 API명으로 저장했는데
      실제 item_name은 기본 이름이다(틀리면 HTTP 400). 파일만 갱신해도 저장된
      종목은 안 바뀌므로 여기서 한 번 고쳐준다. priceKey도 함께 리셋. */
+  /* ★실측 확정: '포장된 ○○'(아바타·룬 포장본)은 넥슨마켓 전용 상품이라
+     게임 거래소 API에 아예 존재하지 않는다(항상 HTTP 400).
+     그런 종목은 apiName을 비워 API 조회 대상에서 빼고 market:true로 표시한다. */
   s.items.forEach(it=>{
-    if(typeof it.apiName==='string'&&/^포장된\s+/.test(it.apiName)){
-      it.apiName=it.apiName.replace(/^포장된\s+/,'');
-      it.priceKey=null;
+    const a=it.apiName||'';
+    if(/^포장된\s/.test(a)||/^스페셜\s/.test(a)||/세트$/.test(a)){
+      it.apiName=''; it.market=true; it.priceKey=null;
     }
+    if(!it.apiName&&it.market===undefined) it.market=true;
   });
   s.sim=Object.assign({initial:10000000,cash:10000000,realized:0,pos:{},log:[],curve:[],orders:[]}, s.sim||{});
   if(!s.sim.orders) s.sim.orders=[];
@@ -1294,6 +1328,78 @@ async function previewFetch(){
   }catch(e){ scanRes[catKey(prevSel)]={err:e.message}; }
   renderBrowse(); renderPreview();
 }
+/* ══════ 넥슨마켓 목록 파서 ══════
+   페이지를 통째로 복사하면 아래 반복 구조가 나온다:
+     포장된 미니 아글란 / 재화 / 37,800,000 ~ / (빈줄) / 6
+   가격줄(숫자~)을 기준으로 위에서 이름, 아래에서 매물수를 집는다.
+   ※ 넥슨마켓은 인게임 거래소와 다른 시장이라 API로는 못 받는다. */
+const MKT_CAT=/^(재화|아바타|장비|소모품|기타|캐릭터|계정)$/;
+function parseMarket(txt){
+  const L=txt.split('\n').map(x=>x.trim());
+  const out=[];
+  for(let i=0;i<L.length;i++){
+    const m=L[i].match(/^([\d,]+)\s*~/);
+    if(!m) continue;
+    const price=parseInt(m[1].replace(/,/g,''),10);
+    if(!price) continue;
+    let name=null;
+    for(let j=i-1;j>=0&&j>=i-4;j--){
+      if(!L[j]||MKT_CAT.test(L[j])) continue;
+      name=L[j]; break;
+    }
+    if(!name) continue;
+    let cnt=null;
+    for(let k=i+1;k<=i+4&&k<L.length;k++){
+      if(!L[k]) continue;
+      if(/^\d+$/.test(L[k])){ cnt=+L[k]; break; }
+      break;
+    }
+    out.push({name, price, cnt});
+  }
+  return out;
+}
+function mktRecord(row){
+  let it=S.items.find(x=>x.name===row.name);
+  if(!it){
+    it={id:'i'+Date.now()+Math.floor(Math.random()*99), name:row.name, apiName:'', match:null,
+      unit:'gold', scale:1, img:'', target:null, alertHigh:null, targetSupply:null,
+      priceKey:null, entries:[]};
+    S.items.push(it);
+  }
+  const d=today();
+  const e={d, p:row.price, s:row.cnt==null?null:row.cnt, m:'넥슨마켓 최저가', src:'man'};
+  const idx=it.entries.findIndex(x=>x.d===d);
+  if(idx>-1) it.entries[idx]=e; else it.entries.push(e);
+  return it;
+}
+function renderMarket(rows){
+  const box=document.getElementById('mktOut');
+  if(!rows.length){ box.innerHTML='<div class="warn" style="font-size:12.5px">목록을 못 읽었어요. 페이지 전체를 복사했는지 확인해주세요.</div>'; return; }
+  let html='<div class="hint">'+rows.length+'개 발견 · ★를 누르면 관심종목으로 기록돼요(오늘 날짜, 최저가·매물수)</div>'
+    +'<table><tr><th></th><th>아이템</th><th>최저가</th><th>매물</th></tr>';
+  rows.forEach((r,i)=>{
+    const has=S.items.some(x=>x.name===r.name);
+    html+='<tr><td style="width:30px"><button class="star'+(has?' on':'')+'" data-m="'+i+'">'+(has?'★':'☆')+'</button></td>'
+      +'<td class="bnm" style="font-size:12.5px">'+r.name+'</td>'
+      +'<td class="num">'+fmtG(r.price)+'</td>'
+      +'<td class="num">'+(r.cnt==null?'—':r.cnt)+'</td></tr>';
+  });
+  html+='</table>';
+  box.innerHTML=html;
+  box.querySelectorAll('.star').forEach(b=>b.onclick=()=>{
+    const r=rows[+b.dataset.m];
+    const it=mktRecord(r);
+    cur=it.id; saveData(); renderAll();
+    renderMarket(rows);
+  });
+  const all=document.createElement('button');
+  all.className='btn sm'; all.textContent='전체 기록 ('+rows.length+'개)';
+  all.onclick=()=>confirmDlg('전체 기록', rows.length+'개를 모두 관심종목으로 기록할까요? 목록이 길면 화면이 복잡해질 수 있어요.',()=>{
+    rows.forEach(mktRecord); saveData(); renderAll(); renderMarket(rows);
+  });
+  box.appendChild(all);
+}
+
 /* 이름 검증: 400/200 차이로 유효 여부 판정. 브라우저에서 직접 호출 가능 확인됨 */
 async function probeNames(){
   const box=document.getElementById('probeOut');
@@ -1319,6 +1425,81 @@ async function probeNames(){
   }
   box.innerHTML=out.join('<br>');
   btn.disabled=false;
+}
+/* ══ 넥슨마켓 목록 파서 ══
+   붙여넣기 형태(줄바꿈 기준):
+     포장된 미니 아글란 / 재화 / 37,800,000 ~ / (빈줄) / 6
+   가격줄(숫자+~)을 기준으로 위쪽에서 이름, 아래쪽에서 매물수를 찾는다. */
+let nxmRows=[];
+function parseNxm(txt){
+  const L=txt.split('\n').map(x=>x.trim());
+  const out=[];
+  for(let i=0;i<L.length;i++){
+    const pm=L[i].match(/^([\d,]+)\s*~/);
+    if(!pm) continue;
+    const price=parseInt(pm[1].replace(/,/g,''),10);
+    if(!price) continue;
+    let name='';
+    for(let j=i-1;j>=0&&j>=i-4;j--){
+      const t=L[j];
+      if(!t||t==='재화'||/^[\d,]+$/.test(t)) continue;
+      name=t; break;
+    }
+    let qty=null;
+    for(let j=i+1;j<L.length&&j<=i+3;j++){
+      if(/^\d+$/.test(L[j])){ qty=+L[j]; break; }
+    }
+    if(name) out.push({name, price, qty});
+  }
+  return out;
+}
+function renderNxm(){
+  const t=document.getElementById('nxmTable');
+  const q=(document.getElementById('nxmQ').value||'').trim();
+  const list=q? nxmRows.filter(r=>r.name.includes(q)):nxmRows;
+  if(!nxmRows.length){ t.innerHTML=''; return; }
+  const show=list.slice(0,60);
+  let html='<tr><th></th><th>아이템</th><th>최저가</th><th>매물</th></tr>';
+  show.forEach((r,i)=>{
+    const fol=S.items.some(x=>x.name===r.name);
+    html+='<tr><td style="width:30px"><button class="star'+(fol?' on':'')+'" data-n="'+i+'">'+(fol?'★':'☆')+'</button></td>'
+      +'<td class="bnm" style="font-size:12.5px">'+r.name+'</td>'
+      +'<td class="num">'+fmtG(r.price)+'</td><td class="num">'+(r.qty!=null?r.qty:'')+'</td></tr>';
+  });
+  t.innerHTML=html;
+  t.querySelectorAll('.star').forEach(b=>b.onclick=()=>{
+    const r=show[+b.dataset.n];
+    let it=S.items.find(x=>x.name===r.name);
+    if(it){ confirmDlg('관심종목 해제','"'+r.name+'" 기록 전체를 삭제할까요?',()=>{
+        S.items=S.items.filter(x=>x.id!==it.id);
+        if(cur===it.id) cur=S.items[0]?S.items[0].id:null;
+        saveData(); renderAll(); }); return; }
+    it={id:'i'+Date.now(), name:r.name, apiName:'', market:true, match:null,
+      unit:'gold', scale:1, img:'', target:null, alertHigh:null, targetSupply:null,
+      priceKey:null, entries:[]};
+    S.items.push(it); cur=it.id;
+    recordNxmOne(it, r);
+    saveData(); renderAll();
+  });
+}
+/* 붙여넣은 값 1건을 해당 종목의 오늘 기록으로 저장 */
+function recordNxmOne(it, r){
+  const d=document.getElementById('nxmDate').value||today();
+  const e={d, p:r.price, s:r.qty==null?null:r.qty, m:'넥슨마켓 최저가', src:'man'};
+  const idx=it.entries.findIndex(x=>x.d===d);
+  if(idx>-1) it.entries[idx]=e; else it.entries.push(e);
+}
+function applyNxm(){
+  const stat=document.getElementById('nxmStat');
+  nxmRows=parseNxm(document.getElementById('nxmIn').value);
+  if(!nxmRows.length){ stat.innerHTML='<span class="warn">인식된 항목이 없어요. 목록 화면을 통째로 복사했는지 확인해보세요.</span>'; renderNxm(); return; }
+  let hit=0;
+  S.items.forEach(it=>{
+    const r=nxmRows.find(x=>x.name===it.name);
+    if(r){ recordNxmOne(it,r); hit++; }
+  });
+  stat.innerHTML='✓ '+nxmRows.length+'개 인식 · 관심종목 '+hit+'개에 오늘 시세 기록됨. 아래에서 ★를 눌러 더 추가할 수 있어요.';
+  recordCurve(); saveData(); renderAll();
 }
 function toggleFollow(c){
   if(!c) return;
@@ -1370,7 +1551,7 @@ function renderBoard(){
     const r=indi.rsi(es.map(e=>e.p),CONFIG.RSI_N);
     html+='<tr data-id="'+it.id+'" class="'+(it.id===cur?'sel':'')+'">'
       +'<td style="width:30px">'+iconOf(it,24)+'</td>'
-      +'<td class="bnm">'+it.name+(it.match?'<div class="memo">필터:'+it.match+'</div>':'')+'</td>'
+      +'<td class="bnm">'+it.name+'<div class="memo">'+(it.market?'🏪 넥슨마켓(수동)':(it.match?'필터:'+it.match:'거래소 API'))+'</div></td>'
       +'<td class="num">'+(last?fmt(it,last.p):'—')+'</td>'
       +'<td class="num">'+(prev&&last?fmtPct(pct(last.p,prev.p)):'—')+'</td>'
       +'<td class="num" style="color:var(--dim)">'+(r!=null?Math.round(r):'·')+'</td></tr>';
@@ -1873,6 +2054,9 @@ document.querySelectorAll('#sortSeg button').forEach(b=>
   b.onclick=()=>{ browseSort=b.dataset.s; renderBrowse(); });
 document.getElementById('btnPrevFetch').onclick=previewFetch;
 document.getElementById('btnProbe').onclick=probeNames;
+document.getElementById('btnNxm').onclick=applyNxm;
+document.getElementById('nxmQ').oninput=renderNxm;
+document.getElementById('btnMkt').onclick=()=>renderMarket(parseMarket(document.getElementById('mktIn').value));
 document.getElementById('btnFollow').onclick=()=>toggleFollow(prevSel);
 document.getElementById('btnBuy').onclick=()=>trade('buy');
 document.getElementById('btnSell').onclick=()=>trade('sell');
@@ -2066,6 +2250,7 @@ function bootUI(){
   cur=S.items[0]?S.items[0].id:null;
   document.getElementById('mDate').value=today();
   document.getElementById('evDate').value=today();
+  document.getElementById('nxmDate').value=today();
   document.getElementById('ghToken').value=LOCAL.token||'';
   document.getElementById('ghGist').value=LOCAL.gist||'';
   document.getElementById('syncAuto').value=LOCAL.syncAuto?'1':'0';
