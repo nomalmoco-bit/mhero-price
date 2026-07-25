@@ -40,6 +40,11 @@
      (인챈트 16종 = 호출 1회). 스캔 결과는 메모리 전용(저장 안 함).
   5) 레이아웃: settings.layout 'auto|mobile|desktop' → body.L-* 클래스.
      960px 이상 or 강제 desktop이면 section에 CSS 2단 칼럼(multicol).
+■ 수집 깊이: 응답은 최근 1주지만 페이지당 500건이라, 거래가 많은 종목은
+  5페이지(2,500건)로 2일치밖에 못 덮는다(골드 실측). 그래서 최초 수집
+  (entries에 src:'api'가 하나도 없을 때) 또는 FORCE_DEEP이면 커서 끝까지
+  MAX_PAGES_FIRST(60p=3만건)까지 판다. 이후엔 MAX_PAGES로 가볍게 갱신.
+  entry.src: 'api'(수집) / 'man'(수동보정) / 'seed'(미리보기 1페이지 시드)
 ■ 데이터 스키마: v4와 동일 + item.match(null 가능), settings.layout.
   ensureDefaults()가 누락 필드 소급 — 새 필드는 반드시 여기에도 추가.
 ■ ★실측 확정(2026-07-25 Actions 로그):
@@ -48,10 +53,11 @@
     이 차이를 이름 검증기(collect.mjs probeNames)로 활용한다.
   - 가격 필드는 average_price (골드 조회에서 확인).
   - '골드'는 정상 동작(scale 10 → 1천만골 기준).
-■ ★확정 사실: 넥슨 API는 access-control-allow-origin: https://openapi.nexon.com
-  만 내려준다 → 브라우저(github.io 등)에서의 직접 호출은 항상 차단된다.
-  실사용 데이터 경로는 GitHub Actions 수집기 → data/prices.json → mergeRemote.
-  refreshAll/scanAll은 1회 프로브로 차단을 감지하고 헛호출을 생략한다.
+■ CORS: github.io에서 직접 호출이 정상 동작함을 실측 확인(오류 본문까지 읽힘).
+  과거 'openapi.nexon.com만 허용'이라 본 것은 vary:origin으로 요청 origin을
+  echo하는 응답을 오독한 것. refreshAll/scanAll의 프로브는 네트워크 차단
+  환경(로컬 file:// 등)을 위한 안전장치로만 남겨둔다.
+  자동수집(data/prices.json)은 앱 미접속 시에도 기록을 쌓기 위한 보조 경로.
 ■ API 제약: 최근 1주 / 500건·next_cursor / "24시간 10건 이상" 아이템만
   응답(슬링샷 등 저유동은 빈 응답이 정상 → 비상 보정입력 제거 금지).
   골드는 100만골 단위 → scale=10 (1천만골당).
@@ -207,7 +213,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <span id="saveDot">저장 대기</span>
   </div>
   <h1>망전 <b>시세 노트</b></h1>
-  <div class="sub" id="subLine">v5.4 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v5.6 · 2026-07-25 — 로딩 중…</div>
   <nav>
     <button class="on" data-tab="chart">시세</button>
     <button data-tab="browse">탐색</button>
@@ -223,6 +229,8 @@ img.itic{border-radius:5px; object-fit:cover}
     <h2>수집</h2>
     <div id="bkBanner" class="banner hide"></div>
     <button class="btn" id="btnRefresh" style="margin-top:0">⟳ 관심종목 새로고침</button>
+    <button class="btn sm ghost" id="btnDeep">⟲ 1주치 전부 다시 수집</button>
+    <div class="hint">처음 등록한 종목은 <b>자동으로 1주치 전부</b> 받아옵니다(거래 많은 종목은 수십 페이지라 시간이 좀 걸려요). 이후엔 최근분만 빠르게 갱신하고, 다시 통째로 받고 싶을 때 위 버튼을 쓰세요.</div>
     <div id="fetchStat"></div>
     <div class="jsonChips" id="pickChips"></div>
   </div>
@@ -340,6 +348,14 @@ img.itic{border-radius:5px; object-fit:cover}
   </div>
 
   <div class="card">
+    <h2>🔎 아이템명 검증기</h2>
+    <div class="hint" style="margin-top:0">API는 <b>400=그런 이름 없음</b>, <b>200+빈배열=이름은 맞지만 최근 24시간 거래 10건 미만</b>으로 답해요. 이 차이로 진짜 이름을 가려냅니다. 한 줄에 하나씩 후보를 넣고 돌리세요.</div>
+    <textarea id="probeIn" placeholder="강화의 룬&#10;추출의 룬&#10;인챈트 스크롤 (무기한)"></textarea>
+    <button class="btn sm ghost" id="btnProbe">이름 검증 실행</button>
+    <div id="probeOut" class="sig" style="font-size:12.5px"></div>
+  </div>
+
+  <div class="card">
     <h2>직접 추가</h2>
     <div class="hint" style="margin-top:0">카탈로그에 없는 종목(새 아바타 등)은 설정 탭 → 종목 관리에서 <b>기본 아이템명</b>으로 직접 추가하세요. 거래소 매물에 보이는 "포장된 ○○"이 아니라 "○○" 형태예요 — 틀린 이름은 조회 시 400 오류가 납니다.</div>
   </div>
@@ -438,7 +454,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <select id="autoSel"><option value="1">켬</option><option value="0">끔</option></select>
     <label>원격 수집 데이터 URL (비우면 같은 사이트의 data/prices.json 자동 사용)</label>
     <input id="remoteUrl" placeholder="자동: data/prices.json">
-    <div class="hint">⚠ 넥슨 API는 <b>자사 도메인에서만</b> 브라우저 호출을 허용해요(CORS). 그래서 이 페이지에서 직접 조회는 차단되고, <b>시세는 GitHub Actions 자동수집을 통해서만</b> 들어옵니다. 키는 저장소 Secret에 넣으세요 — 여기 키 칸은 다른 환경에서 쓸 때를 위한 예비입니다.</div>
+    <div class="hint">브라우저 직접 조회는 <b>정상 동작</b>합니다(실측 확인). 자동수집은 앱을 안 열어도 기록이 쌓이게 해주는 보조 수단이에요. 조회가 실패하면 대부분 <b>아이템 이름</b> 문제이고, 탐색 탭의 🔎 이름 검증기로 확인할 수 있어요.</div>
   </div>
 
   <div class="card">
@@ -499,7 +515,9 @@ img.itic{border-radius:5px; object-fit:cover}
 /* ═══════ 상수 ═══════ */
 const CONFIG={
   MA_SHORT:5, MA_LONG:20, RSI_N:14, BB_N:20, BB_K:2,
-  MAX_PAGES:5, FETCH_DELAY:350, PAGE_DELAY:250, SCAN_DELAY:300,
+  MAX_PAGES:5,        // 평상시(최근분만 갱신)
+  MAX_PAGES_FIRST:60, // 최초 수집: 1주치 전부(500건×60=3만건까지)
+  FETCH_DELAY:350, PAGE_DELAY:250, SCAN_DELAY:300,
   CURVE_MAX:300, AUTO_MS:3600e3, BACKUP_REMIND_DAYS:7, EV_WIN:7, EV_TOL:3
 };
 const KEY='mhero-note-v5';            // 본 데이터(S) — Gist 동기화 대상
@@ -515,7 +533,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v5.4 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v5.6 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -737,12 +755,22 @@ function ensureDefaults(s){
   s.items=(s.items||[]).map(it=>Object.assign(
     {apiName:apiNameGuess(it.name||''), match:null, unit:'gold', scale:1, img:'',
      target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[]}, it));
+  /* ★저장된 데이터 소급 교정: 초기 버전이 '포장된 ○○'을 API명으로 저장했는데
+     실제 item_name은 기본 이름이다(틀리면 HTTP 400). 파일만 갱신해도 저장된
+     종목은 안 바뀌므로 여기서 한 번 고쳐준다. priceKey도 함께 리셋. */
+  s.items.forEach(it=>{
+    if(typeof it.apiName==='string'&&/^포장된\s+/.test(it.apiName)){
+      it.apiName=it.apiName.replace(/^포장된\s+/,'');
+      it.priceKey=null;
+    }
+  });
   s.sim=Object.assign({initial:10000000,cash:10000000,realized:0,pos:{},log:[],curve:[],orders:[]}, s.sim||{});
   if(!s.sim.orders) s.sim.orders=[];
   if(!s.sim.curve.length) s.sim.curve=[{t:Date.now(), v:s.sim.cash}];
   return s;
 }
 let S=null, cur=null, lastRaw={};
+let FORCE_DEEP=false;   // '1주치 다시 수집' 버튼이 켠다(1회성)
 function apiKeyNow(){ return (S&&S.settings.apiKey)||DEFAULT_KEY; }
 
 /* ═══════ 숫자 유틸 ═══════ */
@@ -832,10 +860,15 @@ async function fetchPage(apiName, cursor){
   const r=await fetch(url,{headers:{'x-nxopen-api-key':apiKeyNow()}});
   if(!r.ok){ let msg='HTTP '+r.status;
     try{ const j=await r.json(); if(j.error&&j.error.message) msg+=' '+j.error.message; }catch(e){}
+    msg+=' [보낸이름: '+apiName+']';   // 400의 원인은 대부분 이 이름이다
     throw new Error(msg); }
   return r.json();
 }
-async function fetchItem(it){
+/* deep=true면 1주치 전부(커서 끝까지, MAX_PAGES_FIRST 상한).
+   거래가 많은 종목(골드 등)은 5페이지로 2일치밖에 못 덮어서, 최초 수집이나
+   사용자가 '1주치 다시 수집'을 누를 때는 깊게 판다. onProg로 진행 상황 표시. */
+async function fetchItem(it, deep, onProg){
+  const cap= deep? CONFIG.MAX_PAGES_FIRST : CONFIG.MAX_PAGES;
   let cursor=null, recs=[], pages=0, rawFirst=null;
   do{
     const j=await fetchPage(it.apiName, cursor);
@@ -843,10 +876,15 @@ async function fetchItem(it){
     recs=recs.concat(findRecords(j));
     cursor=j&&j.next_cursor?j.next_cursor:null;
     pages++;
+    if(onProg&&pages%3===0) onProg(pages, recs.length);
     if(cursor) await sleep(CONFIG.PAGE_DELAY);
-  }while(cursor&&pages<CONFIG.MAX_PAGES);
-  return ingestRecords(it, recs, rawFirst);
+  }while(cursor&&pages<cap);
+  const r=ingestRecords(it, recs, rawFirst);
+  r.pages=pages; r.recs=recs.length; r.capped= !!cursor;
+  return r;
 }
+/* 이 종목을 아직 API로 받아본 적이 없으면 최초 수집으로 본다 */
+function isFirstFetch(it){ return !it.entries.some(e=>e.src==='api'); }
 function findRecords(j){
   if(Array.isArray(j)) return j;
   if(j&&Array.isArray(j.item)) return j.item;
@@ -980,7 +1018,7 @@ async function mergeRemote(){
         if(!e||!e.d||typeof e.p!=='number') return;
         const ent={d:e.d, p:Math.round(e.p), s:e.s==null?null:e.s, m:'', src:'api'};
         const idx=it.entries.findIndex(x=>x.d===e.d);
-        if(idx>-1){ if(it.entries[idx].src==='api') it.entries[idx]=ent; }
+        if(idx>-1){ if(it.entries[idx].src!=='man') it.entries[idx]=ent; }  // 수동 보정만 보호
         else { it.entries.push(ent); tot++; }
       });
     });
@@ -1014,10 +1052,14 @@ async function refreshAll(){
   for(const it of S.items){
     if(!it.apiName) continue;
     targets++;
+    const deep= FORCE_DEEP || isFirstFetch(it);
     try{
-      const r=await fetchItem(it);
+      const r=await fetchItem(it, deep, (p,n)=>{
+        stat.innerHTML=lines.concat(['⏳ '+it.name+' 수집 중… '+p+'페이지 · '+n.toLocaleString()+'건']).join('<br>');
+      });
       if(r.pick){ anyPick=r; lines.push('△ '+it.name+': 가격 필드 선택 필요(아래 버튼)'); }
-      else if(r.n>0) lines.push('✓ '+it.name+': '+r.n+'일치 반영');
+      else if(r.n>0) lines.push('✓ '+it.name+': '+r.n+'일치 반영'
+        +(deep? ' <span style="color:var(--dim)">(1주치 '+r.recs.toLocaleString()+'건'+(r.capped?' · 상한 도달':'')+')</span>':''));
       else lines.push('· '+it.name+': 거래 기록 없음(저유동/검색명 확인)');
     }catch(e){
       if(e.name==='TypeError'||/Failed to fetch|NetworkError|CORS/i.test(e.message)){
@@ -1033,6 +1075,7 @@ async function refreshAll(){
   stat.innerHTML=lines.join('<br>');
   renderPick(anyPick);
   recordCurve(); saveData(); renderAll();
+  FORCE_DEEP=false;
   btn.disabled=false; btn.textContent='⟳ 관심종목 새로고침';
 }
 function renderPick(pick){
@@ -1215,6 +1258,32 @@ async function previewFetch(){
   }catch(e){ scanRes[catKey(prevSel)]={err:e.message}; }
   renderBrowse(); renderPreview();
 }
+/* 이름 검증: 400/200 차이로 유효 여부 판정. 브라우저에서 직접 호출 가능 확인됨 */
+async function probeNames(){
+  const box=document.getElementById('probeOut');
+  const list=document.getElementById('probeIn').value.split('\n')
+    .map(x=>x.trim()).filter(Boolean);
+  if(!list.length){ box.innerHTML='<span class="warn">후보 이름을 한 줄에 하나씩 넣으세요.</span>'; return; }
+  const btn=document.getElementById('btnProbe'); btn.disabled=true;
+  const out=[];
+  for(const nm of list){
+    box.innerHTML=out.join('<br>')+(out.length?'<br>':'')+'검사 중… '+nm;
+    try{
+      const j=await fetchPage(nm,null);
+      const n=findRecords(j).length;
+      out.push(n
+        ? '<span class="okC">✓ 사용가능</span> '+nm+' <span style="color:var(--dim)">('+n+'건)</span>'
+        : '<span class="goldC">△ 이름 OK</span> '+nm+' <span style="color:var(--dim)">(24h 거래 10건 미만)</span>');
+    }catch(e){
+      out.push(/400/.test(e.message)
+        ? '<span class="upC">✕ 없는 이름</span> '+nm
+        : '<span class="upC">✕</span> '+nm+' <span style="color:var(--dim)">'+e.message+'</span>');
+    }
+    await sleep(CONFIG.SCAN_DELAY);
+  }
+  box.innerHTML=out.join('<br>');
+  btn.disabled=false;
+}
 function toggleFollow(c){
   if(!c) return;
   if(isFollowed(c)){
@@ -1234,6 +1303,7 @@ function toggleFollow(c){
   const seedEs=prevEntries[catKey(c)];
   if(seedEs) it.entries=seedEs.map(e=>({d:e.d,p:e.p,s:e.s,m:'',src:'api'}));
   S.items.push(it); cur=it.id;
+  it.entries.forEach(e=>{ e.src='seed'; });   // 미리보기 1페이지 시드 → 최초 수집 대상 유지
   saveData(); renderAll(); renderPreview();
 }
 
@@ -1394,7 +1464,7 @@ function renderChart(){
     tip.innerHTML='<b>'+e.d+'</b> · '+fmt(it,e.p)+extra
       +(it.unit==='gold'&&toKrw(e.p)!=null&&mode!=='krw'?' <span class="goldC">≈'+Math.round(toKrw(e.p)).toLocaleString()+'원</span>':'')
       +(e.s!=null&&e.s!==''?' · 거래·매물 '+e.s:'')
-      +(e.src==='api'?' · <span class="okC">API</span>':' · 보정')
+      +(e.src==='man'?' · 보정':' · <span class="okC">API</span>')
       +(e.m?'<br>'+e.m:''); };
   document.getElementById('evLegend').innerHTML=
     evs.map((e,i)=>'<span>'+(i+1)+'. '+e.d.slice(5)+' '+e.t+'</span>').join(' &nbsp; ');
@@ -1521,7 +1591,7 @@ function renderHist(){
     html+='<tr><td class="num">'+e.d.slice(2)+'</td>'
       +'<td class="num"><b>'+fmt(it,e.p)+'</b>'+(e.m?'<div class="memo">'+e.m+'</div>':'')+'</td>'
       +'<td class="num">'+(e.s!=null&&e.s!==''?e.s:'')+'</td>'
-      +'<td>'+(e.src==='api'?'<span class="badge bOk">API</span>':'<span class="badge bNo">보정</span>')+'</td>'
+      +'<td>'+(e.src==='man'?'<span class="badge bNo">보정</span>':'<span class="badge bOk">API</span>')+'</td>'
       +'<td><button class="del" data-d="'+e.d+'" data-p="'+e.p+'">✕</button></td></tr>';
   });
   t.innerHTML=html;
@@ -1759,11 +1829,13 @@ document.getElementById('layoutBtn').onclick=()=>{
   applyLayout(); saveData();
 };
 document.getElementById('btnRefresh').onclick=refreshAll;
+document.getElementById('btnDeep').onclick=()=>{ FORCE_DEEP=true; refreshAll(); };
 document.getElementById('btnScan').onclick=scanAll;
 document.getElementById('catSearch').oninput=e=>{ browseQ=e.target.value.trim(); renderBrowse(); };
 document.querySelectorAll('#sortSeg button').forEach(b=>
   b.onclick=()=>{ browseSort=b.dataset.s; renderBrowse(); });
 document.getElementById('btnPrevFetch').onclick=previewFetch;
+document.getElementById('btnProbe').onclick=probeNames;
 document.getElementById('btnFollow').onclick=()=>toggleFollow(prevSel);
 document.getElementById('btnBuy').onclick=()=>trade('buy');
 document.getElementById('btnSell').onclick=()=>trade('sell');
