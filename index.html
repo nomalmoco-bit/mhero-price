@@ -18,9 +18,14 @@
        JSON으로도 내보내진다. LOCAL은 동기화·내보내기 대상이 아니다.
      - 잠금(pw, djb2 해시)은 암호화가 아니라 본인확인용. 실질 접근 통제는
        사용자만 가진 GitHub 토큰이다.
-     - Gist 동기화: api.github.com/gists (scope=gist), secret gist,
-       파일명 'mhero-note.json'. 충돌은 S.savedAt(ms) 비교로 경고만 하고
-       사용자가 방향(올리기/내려받기)을 고른다 — 자동 병합하지 않는다.
+     - Gist 동기화: api.github.com/gists, 파일명 'mhero-note.json'.
+       ★읽기(GET)는 무인증 가능 → DEFAULT_GIST만 있으면 어느 기기든 열자마자
+         최신 데이터를 받는다. 쓰기(PATCH/POST)만 토큰 필요.
+       ★토큰은 절대 파일에 넣지 말 것: GitHub가 공개 노출 토큰을 자동 폐기해
+         동기화가 죽고, 그 사이 제3자가 데이터를 덮어쓸 수 있다.
+       ★secret gist는 비공개가 아니다(ID로 읽힘) → gistSafe()가 업로드 전
+         settings.apiKey를 제거. 무인증 GET은 IP당 60회/시간 제한이 있다.
+       충돌은 S.savedAt(ms) 비교로 경고만 하고 사용자가 방향을 고른다.
   2) 라이브 API 키 내장(DEFAULT_KEY): 공개 사이트에 키가 노출되는 건
      소유자(사용자)가 선택한 트레이드오프. 남용 시 openapi.nexon.com에서
      재발급 후 이 상수만 교체. 설정탭에서 프로필별 키 덮어쓰기 가능.
@@ -37,6 +42,10 @@
      960px 이상 or 강제 desktop이면 section에 CSS 2단 칼럼(multicol).
 ■ 데이터 스키마: v4와 동일 + item.match(null 가능), settings.layout.
   ensureDefaults()가 누락 필드 소급 — 새 필드는 반드시 여기에도 추가.
+■ ★확정 사실: 넥슨 API는 access-control-allow-origin: https://openapi.nexon.com
+  만 내려준다 → 브라우저(github.io 등)에서의 직접 호출은 항상 차단된다.
+  실사용 데이터 경로는 GitHub Actions 수집기 → data/prices.json → mergeRemote.
+  refreshAll/scanAll은 1회 프로브로 차단을 감지하고 헛호출을 생략한다.
 ■ API 제약: 최근 1주 / 500건·next_cursor / "24시간 10건 이상" 아이템만
   응답(슬링샷 등 저유동은 빈 응답이 정상 → 비상 보정입력 제거 금지).
   골드는 100만골 단위 → scale=10 (1천만골당).
@@ -382,18 +391,20 @@ img.itic{border-radius:5px; object-fit:cover}
 <section id="tab-data" class="hide">
   <div class="card">
     <h2>☁ Gist 동기화 — 폰↔PC 공유</h2>
-    <label>GitHub 토큰 (scope: gist 하나만 체크)</label>
-    <input id="ghToken" type="password" placeholder="ghp_... / github_pat_...">
+    <div class="hint" style="margin-top:0"><b>읽기는 설정이 필요 없어요</b> — 열면 자동으로 최신 기록을 받아옵니다. 토큰은 <b>기록을 올릴 기기에서만</b> 넣으면 돼요.</div>
+    <label>GitHub 토큰 (올리기용 · scope: gist 하나만)</label>
+    <input id="ghToken" type="password" placeholder="ghp_... (올릴 기기에서만)">
     <label>Gist ID (비우면 첫 업로드 때 자동 생성)</label>
     <input id="ghGist" placeholder="자동 생성">
     <div class="row">
       <button class="btn sm ghost" id="btnPush">↑ 올리기</button>
       <button class="btn sm ghost" id="btnPull">↓ 내려받기</button>
     </div>
-    <label>열 때 자동으로 내려받기</label>
-    <select id="syncAuto"><option value="0">끔</option><option value="1">켬</option></select>
+    <label>열 때 자동으로 내려받기 (토큰 불필요)</label>
+    <select id="syncAuto"><option value="1">켬</option><option value="0">끔</option></select>
     <div id="syncStat" class="hint"></div>
-    <div class="hint">비공개(secret) Gist에 저장돼요. 토큰은 <b>이 기기에만</b> 저장되고 파일·백업·Gist 어디에도 안 들어갑니다. 다른 기기에서 같은 토큰만 넣으면 이어서 써요.</div>
+    <div class="hint">Gist ID는 내 것이 기본으로 들어가 있어요 — <b>다른 기기에선 토큰만</b> 넣으면 이어집니다. 토큰은 이 기기에만 저장되고 파일·백업·Gist 어디에도 안 들어가요.<br>
+    ⚠ GitHub의 'secret' gist는 <b>비공개가 아닙니다</b>(ID를 아는 사람은 읽을 수 있음). 그래서 업로드할 때 API 키는 자동으로 빼고 시세·모의거래 기록만 올려요. 공개되면 곤란한 내용은 넣지 마세요.</div>
   </div>
 
   <div class="card">
@@ -414,9 +425,9 @@ img.itic{border-radius:5px; object-fit:cover}
     <input id="feeRate" inputmode="decimal">
     <label>앱 열 때 자동 새로고침 (1시간 쿨다운)</label>
     <select id="autoSel"><option value="1">켬</option><option value="0">끔</option></select>
-    <label>원격 수집 데이터 URL</label>
-    <input id="remoteUrl" placeholder="https://아이디.github.io/저장소/data/prices.json">
-    <div class="hint">기본 키는 사이트 소유자의 라이브 키가 내장돼 있어요(공개 소스라 노출됨 — 남용 시 소유자가 재발급). 본인 키가 있으면 여기 넣으면 이 프로필만 그 키를 씁니다.</div>
+    <label>원격 수집 데이터 URL (비우면 같은 사이트의 data/prices.json 자동 사용)</label>
+    <input id="remoteUrl" placeholder="자동: data/prices.json">
+    <div class="hint">⚠ 넥슨 API는 <b>자사 도메인에서만</b> 브라우저 호출을 허용해요(CORS). 그래서 이 페이지에서 직접 조회는 차단되고, <b>시세는 GitHub Actions 자동수집을 통해서만</b> 들어옵니다. 키는 저장소 Secret에 넣으세요 — 여기 키 칸은 다른 환경에서 쓸 때를 위한 예비입니다.</div>
   </div>
 
   <div class="card">
@@ -485,6 +496,12 @@ const LKEY='mhero-local';             // 이 기기 전용(LOCAL) — 절대 동
 const KEY_LEGACY2='mhero-price-note-v2', KEY_LEGACY1='mhero-price-note-v1';
 const GIST_FILE='mhero-note.json';
 const GIST_API='https://api.github.com/gists';
+/* 소유자 Gist ID 기본값 — 기기마다 토큰만 넣으면 되게 편의상 내장.
+   ※ GitHub의 'secret' gist는 비공개가 아니다(ID를 아는 사람은 읽을 수 있음).
+     따라서 여기 담기는 내용은 '공개돼도 되는 것'만이어야 한다 →
+     gistSafe()가 업로드 직전 API 키를 제거한다. 이 보호를 지우지 말 것.
+   개인정보성 데이터를 넣게 되면 이 상수를 ''로 비우고 기기마다 직접 입력시킬 것. */
+const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -534,13 +551,14 @@ function saveData(){
   },250);
 }
 /* LOCAL: 이 기기 전용 설정(비번 해시·GitHub 토큰·Gist ID). S와 분리 보관 */
-let LOCAL={pw:null, token:'', gist:'', syncAuto:false};
+let LOCAL={pw:null, token:'', gist:'', syncAuto:true};
 async function saveLocal(){ await rawSave(LKEY,LOCAL); }
 
 /* ═══════ 잠금(본인 확인) ═══════ */
 function pwHash(x){ let h=5381; for(const c of x) h=((h*33)^c.charCodeAt(0))>>>0; return String(h); }
 async function initAuth(){
-  LOCAL=Object.assign({pw:null, token:'', gist:'', syncAuto:false}, (await rawLoad(LKEY))||{});
+  LOCAL=Object.assign({pw:null, token:'', gist:'', syncAuto:true}, (await rawLoad(LKEY))||{});
+  if(!LOCAL.gist) LOCAL.gist=DEFAULT_GIST;
   if(LOCAL.pw){
     document.getElementById('loginOv').classList.remove('hide');
     document.getElementById('lockIn').focus();
@@ -578,23 +596,35 @@ async function findLegacyProfileData(){
 /* ═══════ Gist 동기화 ═══════ */
 function syncMsg(t){ const e=document.getElementById('syncStat'); if(e) e.textContent=t;
   const w=document.getElementById('who'); if(w) w.textContent=t?('☁ '+t.split(' ')[0]):''; }
-function ghHeaders(){ return {'Authorization':'Bearer '+LOCAL.token,
-  'Accept':'application/vnd.github+json','Content-Type':'application/json'}; }
+/* 읽기(GET)는 토큰 없이도 된다 — Gist는 ID만 알면 조회 가능.
+   쓰기(POST/PATCH)만 토큰이 필요하다. 토큰을 파일에 박지 않는 이유:
+   GitHub가 공개 노출된 토큰을 자동 폐기하므로 어차피 곧 죽는다. */
+function ghHeaders(auth){
+  const h={'Accept':'application/vnd.github+json','Content-Type':'application/json'};
+  if(auth&&LOCAL.token) h['Authorization']='Bearer '+LOCAL.token;
+  return h;
+}
+/* Gist는 ID만 알면 읽히므로, 업로드본에서 개인 API 키를 지운다 */
+function gistSafe(){
+  const c=JSON.parse(JSON.stringify(S));
+  if(c.settings) c.settings.apiKey='';
+  return c;
+}
 async function gistPush(){
   if(!LOCAL.token){ syncMsg('토큰을 먼저 입력하세요'); return; }
   syncMsg('올리는 중…');
   try{
     S.savedAt=Date.now();
     const body={description:'망전 시세 노트 데이터', files:{}};
-    body.files[GIST_FILE]={content:JSON.stringify(S)};
+    body.files[GIST_FILE]={content:JSON.stringify(gistSafe())};
     let r;
     if(LOCAL.gist){
-      r=await fetch(GIST_API+'/'+LOCAL.gist,{method:'PATCH',headers:ghHeaders(),body:JSON.stringify(body)});
+      r=await fetch(GIST_API+'/'+LOCAL.gist,{method:'PATCH',headers:ghHeaders(1),body:JSON.stringify(body)});
       if(r.status===404){ LOCAL.gist=''; }   // 지워진 Gist면 새로 만든다
     }
     if(!LOCAL.gist){
       body.public=false;
-      r=await fetch(GIST_API,{method:'POST',headers:ghHeaders(),body:JSON.stringify(body)});
+      r=await fetch(GIST_API,{method:'POST',headers:ghHeaders(1),body:JSON.stringify(body)});
     }
     if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401?' (토큰 확인)':''));
     const j=await r.json();
@@ -604,10 +634,10 @@ async function gistPush(){
   }catch(e){ syncMsg('올리기 실패: '+e.message); }
 }
 async function gistPull(silent){
-  if(!LOCAL.token||!LOCAL.gist){ if(!silent) syncMsg('토큰과 Gist ID가 필요해요'); return; }
+  if(!LOCAL.gist){ if(!silent) syncMsg('Gist ID가 필요해요'); return; }
   if(!silent) syncMsg('내려받는 중…');
   try{
-    const r=await fetch(GIST_API+'/'+LOCAL.gist,{headers:ghHeaders(),cache:'no-store'});
+    const r=await fetch(GIST_API+'/'+LOCAL.gist,{headers:ghHeaders(0),cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const j=await r.json();
     const f=j.files&&j.files[GIST_FILE];
@@ -617,7 +647,9 @@ async function gistPull(silent){
     const d=JSON.parse(txt);
     if(!d||!d.items) throw new Error('형식 불일치');
     const rt=d.savedAt||0, lt=(S&&S.savedAt)||0;
-    const apply=()=>{ S=ensureDefaults(d); cur=S.items[0]?S.items[0].id:null;
+    const keepKey=(S&&S.settings&&S.settings.apiKey)||'';   // 내 키는 이 기기 것을 유지
+    const apply=()=>{ S=ensureDefaults(d); if(keepKey) S.settings.apiKey=keepKey;
+      cur=S.items[0]?S.items[0].id:null;
       applyLayout(); rawSave(KEY,S); renderAll();
       syncMsg('내려받음 · '+(rt?new Date(rt).toLocaleString('ko-KR'):'시각 미상')); };
     if(!silent && S && lt>rt){
@@ -873,8 +905,23 @@ function ingestRecords(it, recs, rawJ){
   }
   return {n};
 }
+/* 원격 데이터 주소. 비워두면 같은 사이트의 data/prices.json을 자동으로 본다
+   (GitHub Pages + Actions 수집기를 같은 저장소에 두면 설정이 필요 없다). */
+function remoteUrlNow(){
+  if(S.settings.remoteUrl) return S.settings.remoteUrl;
+  return /^https?:/.test(location.protocol)? 'data/prices.json':'';
+}
+async function loadRemoteRaw(){
+  const url=remoteUrlNow(); if(!url) return null;
+  try{
+    const r=await fetch(url,{cache:'no-store'});
+    if(!r.ok) return null;
+    const j=await r.json();
+    return (j&&Array.isArray(j.items))? j:null;
+  }catch(e){ return null; }
+}
 async function mergeRemote(){
-  const url=S.settings.remoteUrl;
+  const url=remoteUrlNow();
   if(!url) return null;
   try{
     const r=await fetch(url,{cache:'no-store'});
@@ -902,6 +949,23 @@ async function refreshAll(){
   btn.disabled=true; btn.textContent='조회 중…';
   const lines=[];
   const rm=await mergeRemote(); if(rm) lines.push(rm);
+  // 브라우저 직접 호출 가능 여부를 1회만 확인(넥슨 API는 자기 도메인만 CORS 허용)
+  let blocked=false;
+  const probe=S.items.find(x=>x.apiName);
+  if(probe){
+    try{ await fetchPage(probe.apiName,null); }
+    catch(e){ if(e.name==='TypeError'||/Failed to fetch|NetworkError|CORS/i.test(e.message)) blocked=true; }
+  }
+  if(blocked){
+    lines.push('✕ 브라우저 직접 호출이 차단됨(넥슨 API는 자사 도메인만 허용).');
+    lines.push('→ 시세는 <b>자동수집(GitHub Actions)</b>으로만 들어옵니다. 저장소에 수집기를 설치하면 이 페이지가 같은 주소의 data/prices.json을 자동으로 읽어요.');
+    lines.push(...checkOrders());
+    S.settings.lastFetch=Date.now();
+    stat.innerHTML=lines.join('<br>');
+    recordCurve(); saveData(); renderAll();
+    btn.disabled=false; btn.textContent='⟳ 관심종목 새로고침';
+    return;
+  }
   let anyPick=null, corsFail=0, targets=0;
   for(const it of S.items){
     if(!it.apiName) continue;
@@ -993,7 +1057,30 @@ function computeCat(c, recs){
 async function scanAll(){
   const btn=document.getElementById('btnScan'), stat=document.getElementById('scanStat');
   btn.disabled=true;
+  // ① 자동수집 데이터가 있으면 그걸로 먼저 채운다(브라우저 직접 호출이 막혀도 동작)
+  const remote=await loadRemoteRaw();
+  let fromRemote=0;
+  if(remote){
+    CATALOG.forEach(c=>{
+      const ri=remote.items.find(x=>x.apiName===c.apiName&&(x.match||'')===(c.match||''));
+      if(ri&&Array.isArray(ri.entries)&&ri.entries.length){
+        const st=statFromEntries(ri.entries.map(e=>({d:e.d,p:e.p,s:e.s})));
+        if(st){ scanRes[catKey(c)]=st; prevEntries[catKey(c)]=st.entries; fromRemote++; }
+      }
+    });
+    renderBrowse();
+  }
+  // ② 직접 호출 가능 여부 확인
   const names=[...new Set(CATALOG.map(c=>c.apiName))];
+  try{ await fetchPage(names[0],null); }
+  catch(e){
+    if(e.name==='TypeError'||/Failed to fetch|NetworkError|CORS/i.test(e.message)){
+      stat.innerHTML= fromRemote
+        ? '자동수집 데이터로 '+fromRemote+'종목 표시 중 (브라우저 직접 호출은 차단됨 — 정상)'
+        : '✕ 브라우저 직접 호출 차단 + 자동수집 데이터 없음 → 저장소에 수집기를 설치하세요.';
+      btn.disabled=false; renderBrowse(); return;
+    }
+  }
   const cache={}; let done=0;
   for(const nm of names){
     stat.textContent='스캔 중… ('+(++done)+'/'+names.length+') '+nm;
@@ -1792,7 +1879,7 @@ document.getElementById('lockGo').onclick=()=>{
 document.getElementById('lockIn').onkeydown=e=>{ if(e.key==='Enter') document.getElementById('lockGo').click(); };
 document.getElementById('lockForgot').onclick=async ()=>{
   if(!confirm('잠금과 이 기기의 로컬 데이터를 지웁니다. 계속할까요?')) return;
-  LOCAL={pw:null, token:'', gist:'', syncAuto:false};
+  LOCAL={pw:null, token:'', gist:'', syncAuto:true};
   await saveLocal();
   try{ localStorage.removeItem(KEY); }catch(e){}
   try{ if(window.storage) await window.storage.delete(KEY); }catch(e){}
@@ -1827,7 +1914,7 @@ function bootUI(){
   applyLayout();
   saveData();
   renderAll();
-  if(LOCAL.syncAuto&&LOCAL.token&&LOCAL.gist) gistPull(true);
+  if(LOCAL.syncAuto&&LOCAL.gist) gistPull(true);
   if(S.settings.autoRefresh && Date.now()-S.settings.lastFetch>CONFIG.AUTO_MS){
     refreshAll();
   } else if(S.settings.remoteUrl){
