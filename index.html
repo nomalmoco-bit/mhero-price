@@ -47,6 +47,14 @@
   entry.src: 'api'(수집) / 'man'(수동보정) / 'seed'(미리보기 1페이지 시드)
 ■ 데이터 스키마: v4와 동일 + item.match(null 가능), settings.layout.
   ensureDefaults()가 누락 필드 소급 — 새 필드는 반드시 여기에도 추가.
+■ ★응답 스키마 실측 확정(2026-07-18 데이터):
+  item[] = {date_update(ISO, 시간단위 스냅샷), item_name, average_price,
+            min_price, max_price, item_option{...}}, next_cursor
+  - 거래 '건별'이 아니라 **시간당 집계**다. 하루치 p는 시간평균들의 평균,
+    lo/hi는 그날 min/max, s는 거래가 잡힌 시간 수(거래량 아님).
+  - 인챈트는 item_name='인챈트 스크롤'(★(무기한) 아님) 하나로 조회하고
+    item_option.prefix_enchant_preset_1 / suffix_enchant_preset_1로 종류 구분.
+    ENCH_PRE/ENCH_SUF가 실측으로 뽑은 실제 이름 목록이다.
 ■ ★실측 확정(2026-07-25 Actions 로그):
   - item_name은 '포장된 ...'(거래소 매물 표시명)이 아니라 기본 아이템명.
     존재하지 않는 이름 → HTTP 400 / 존재하지만 24h 거래 10건 미만 → 200+빈배열.
@@ -213,7 +221,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <span id="saveDot">저장 대기</span>
   </div>
   <h1>망전 <b>시세 노트</b></h1>
-  <div class="sub" id="subLine">v5.6 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v5.7 · 2026-07-25 — 로딩 중…</div>
   <nav>
     <button class="on" data-tab="chart">시세</button>
     <button data-tab="browse">탐색</button>
@@ -301,6 +309,7 @@ img.itic{border-radius:5px; object-fit:cover}
       <div><label>이벤트</label><input id="evName" placeholder="예: 신캐 출시"></div>
     </div>
     <button class="btn sm ghost" id="btnEv">이벤트 추가</button>
+    <div class="hint" style="margin-top:0">API가 주는 '활성'은 거래량이 아니라 <b>그날 거래가 잡힌 시간 수(최대 24)</b>예요 — 유동성 지표로 보세요. 수동 보정에 넣은 숫자는 매물 수 그대로입니다.</div>
     <div class="hint">넥슨 이벤트 공지는 자동수집이 <b>data/events.json</b>에 모아주고, 열 때 자동으로 달력에 들어와요(<span class="badge bBlue">자동</span> 표시). 지우면 다시 안 올라옵니다.</div>
   </div>
 
@@ -533,12 +542,21 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v5.6 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v5.7 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
-const ENCHS=['격노','뒤틀린','원한','진격','추적자','한탄','광기','광분','투혼',
-'찬미','일격','승자의','복수의','고대의','우아한','잊혀진'];
+/* ★실측(2026-07-18 응답)에서 추출한 실제 인챈트명.
+   조회는 "인챈트 스크롤" 하나로 하고, 종류는 item_option의
+   prefix_enchant_preset_1 / suffix_enchant_preset_1 값으로 구분한다. */
+const ENCH_PRE=['삼키는','꿰뚫는','굳어버린','파괴하는','신중한','대적자의','시공의','질풍의',
+'물드는','비극의','처단하는','헤매는','증폭된','잦아든','초월의','단호한','메마른','결연한',
+'우아한','순환의','고대의','감춰진','공허한','복수의','승자의','잊혀진','영원한','격렬한',
+'잔혹한','추적자의','차분한','고결한','뜻깊은','강렬한','신속한','냉철의','의미있는','비통한',
+'평온한','예언의','뒤틀린','불굴의','가득한','고조되는','집중의','죽은자의'];
+const ENCH_SUF=['물결','찬미','일격','강림','한탄','시련','사념','광기','광분','고독','원한',
+'격돌','질주','폭렬','신비','투혼','진격','격노','소망','열망','마음','돌진','열의','활력','아르마딜로'];
+const ENCH_NAME='인챈트 스크롤';
 const CATALOG=[
  {cat:'재화', name:'골드 시세(1천만골)', apiName:'골드', unit:'krw', scale:10, ok:1},
  {cat:'룬·소모품', name:'강화의 룬', apiName:'강화의 룬', ok:1},
@@ -546,12 +564,11 @@ const CATALOG=[
  {cat:'룬·소모품', name:'귀속 해제 포션', apiName:'귀속 해제 포션'},
  {cat:'룬·소모품', name:'고급 강화의 비약', apiName:'고급 강화의 비약'},
  {cat:'룬·소모품', name:'강화의 비약', apiName:'강화의 비약'},
- {cat:'룬·소모품', name:'게브네의 강화석', apiName:'게브네의 강화석'},
  {cat:'아바타', name:'슬링샷 세트', apiName:'스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트'}
-].concat(ENCHS.map(n=>({cat:'인챈트', name:n, apiName:'인챈트 스크롤 (무기한)', match:n})))
+].concat(ENCH_PRE.map(n=>({cat:'인챈트(접두)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
+ .concat(ENCH_SUF.map(n=>({cat:'인챈트(접미)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
  .concat([
  {cat:'재료', name:'계승석 조각', apiName:'계승석 조각'},
- {cat:'재료', name:'계승 원석', apiName:'계승 원석'},
  {cat:'재료', name:'와드네의 결정', apiName:'와드네의 결정'}
 ]);
 const catKey=c=>c.apiName+'|'+(c.match||'');
@@ -927,8 +944,19 @@ function detectImg(j){
 }
 function ingest(it,j){ return ingestRecords(it, findRecords(j), j); }
 /* match(부분 문자열) 필터 → 일별 평균 집계 → entries 병합 */
+/* 인챈트 종류 매칭: item_option의 preset 필드를 정확히 비교하고,
+   거기서 못 찾으면(다른 용도의 match) 통짜 문자열 포함으로 보조 판정한다. */
+function optMatch(r, m){
+  const o=r&&r.item_option; if(!o) return false;
+  return o.prefix_enchant_preset_1===m||o.suffix_enchant_preset_1===m
+      ||o.prefix_enchant_preset_2===m||o.suffix_enchant_preset_2===m;
+}
 function ingestRecords(it, recs, rawJ){
-  if(it.match) recs=recs.filter(r=>{ try{ return JSON.stringify(r).includes(it.match); }catch(e){ return false; } });
+  if(it.match){
+    const byOpt=recs.filter(r=>optMatch(r,it.match));
+    recs= byOpt.length? byOpt
+      : recs.filter(r=>{ try{ return JSON.stringify(r).includes(it.match); }catch(e){ return false; } });
+  }
   lastRaw[it.id]=recs;
   if(!recs.length) return {n:0};
   if(!it.img&&rawJ){ const im=detectImg(rawJ); if(im) it.img=im; }
@@ -947,14 +975,22 @@ function ingestRecords(it, recs, rawJ){
     const p=getPath(r,it.priceKey); if(typeof p!=='number') return;
     let d=today();
     if(dk){ const m=String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if(m) d=m[0]; }
-    if(!byDay[d]) byDay[d]={sum:0,n:0,cnt:0};
+    if(!byDay[d]) byDay[d]={sum:0,n:0,cnt:0,lo:Infinity,hi:-Infinity};
     byDay[d].sum+=p; byDay[d].n++;
     byDay[d].cnt+= (ck&&typeof r[ck]==='number')? r[ck]:1;
+    if(typeof r.min_price==='number'&&r.min_price>0) byDay[d].lo=Math.min(byDay[d].lo,r.min_price);
+    if(typeof r.max_price==='number') byDay[d].hi=Math.max(byDay[d].hi,r.max_price);
   });
   let n=0;
   for(const d in byDay){
+    /* 응답은 '시간당 평균가' 스냅샷이므로 하루치는 그 평균의 평균.
+       s = 그날 거래가 잡힌 시간 수(최대 24) = 활성도 지표(거래량이 아님).
+       lo/hi = 그날의 최저/최고 실거래가. */
     const avg=Math.round(byDay[d].sum/byDay[d].n*(it.scale||1));
+    const sc=it.scale||1;
     const ent={d, p:avg, s:byDay[d].cnt, m:'', src:'api'};
+    if(byDay[d].lo<Infinity) ent.lo=Math.round(byDay[d].lo*sc);
+    if(byDay[d].hi>-Infinity) ent.hi=Math.round(byDay[d].hi*sc);
     const idx=it.entries.findIndex(e=>e.d===d);
     if(idx>-1) it.entries[idx]=ent; else it.entries.push(ent);
     n++;
@@ -1463,7 +1499,8 @@ function renderChart(){
     if(mode==='cmp') extra=' · 기간 대비 '+(seriesA[i].v>0?'+':'')+(Math.round(seriesA[i].v*10)/10)+'%';
     tip.innerHTML='<b>'+e.d+'</b> · '+fmt(it,e.p)+extra
       +(it.unit==='gold'&&toKrw(e.p)!=null&&mode!=='krw'?' <span class="goldC">≈'+Math.round(toKrw(e.p)).toLocaleString()+'원</span>':'')
-      +(e.s!=null&&e.s!==''?' · 거래·매물 '+e.s:'')
+      +(e.lo!=null&&e.hi!=null?'<br>일중 '+fmt(it,e.lo)+' ~ '+fmt(it,e.hi):'')
+      +(e.s!=null&&e.s!==''?' · 활성 '+e.s+(e.src==='man'?'':'시간'):'')
       +(e.src==='man'?' · 보정':' · <span class="okC">API</span>')
       +(e.m?'<br>'+e.m:''); };
   document.getElementById('evLegend').innerHTML=
@@ -1484,7 +1521,7 @@ function renderLegend(mode,cmp){
       +'<span><i style="background:var(--ma)"></i>MA5</span>'
       +'<span><i style="background:var(--ma2)"></i>MA20</span>'
       +'<span><i style="background:rgba(107,155,255,.5)"></i>볼린저</span>'
-      +'<span><i style="background:var(--dim)"></i>거래량</span>'
+      +'<span><i style="background:var(--dim)"></i>활성시간</span>'
       +'<span><i style="border-top:2px dashed var(--up);height:1px"></i>목표</span>'
       +'<span><i style="border-top:2px dashed var(--ok);height:1px"></i>알림</span>';
   }
@@ -1524,7 +1561,7 @@ function renderStats(){
   if(it.target) cells.push(['목표 매수가','<span class="num">'+fmt(it,it.target)+'</span> · 괴리 '+fmtPct(pct(last.p,it.target))]);
   if(it.alertHigh) cells.push(['상단 알림가','<span class="num">'+fmt(it,it.alertHigh)+'</span> · 괴리 '+fmtPct(pct(last.p,it.alertHigh))]);
   const lastS=[...es].reverse().find(e=>e.s!=null&&e.s!=='');
-  if(it.targetSupply||lastS) cells.push(['거래·매물',(lastS?lastS.s+'':'—')+(it.targetSupply?' / 목표 '+it.targetSupply+'+':'')]);
+  if(it.targetSupply||lastS) cells.push(['활성/매물',(lastS?lastS.s+'':'—')+(it.targetSupply?' / 목표 '+it.targetSupply+'+':'')]);
   cells.push(['기록',es.length+'회 (전체 '+it.entries.length+'회)']);
   cells.forEach(([k2,v])=>{ const c=document.createElement('div'); c.className='cell';
     c.innerHTML='<div class="k">'+k2+'</div><div class="v">'+v+'</div>'; grid.appendChild(c); });
@@ -1586,7 +1623,7 @@ function renderHist(){
   if(!it){t.innerHTML='';return;}
   const es=sortedEntries(it).slice().reverse();
   if(!es.length){ t.innerHTML='<tr><td class="hint">기록 없음</td></tr>'; return; }
-  let html='<tr><th>날짜</th><th>가격</th><th>거래·매물</th><th>출처</th><th></th></tr>';
+  let html='<tr><th>날짜</th><th>가격</th><th>활성</th><th>출처</th><th></th></tr>';
   es.forEach(e=>{
     html+='<tr><td class="num">'+e.d.slice(2)+'</td>'
       +'<td class="num"><b>'+fmt(it,e.p)+'</b>'+(e.m?'<div class="memo">'+e.m+'</div>':'')+'</td>'
