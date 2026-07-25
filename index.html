@@ -201,7 +201,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <span id="saveDot">저장 대기</span>
   </div>
   <h1>망전 <b>시세 노트</b></h1>
-  <div class="sub" id="subLine">넥슨 공식 API · 보조지표 · 모의거래</div>
+  <div class="sub" id="subLine">v5.3 · 2026-07-25 — 로딩 중…</div>
   <nav>
     <button class="on" data-tab="chart">시세</button>
     <button data-tab="browse">탐색</button>
@@ -509,6 +509,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
+const BUILD='v5.3 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -1227,7 +1228,7 @@ function toggleFollow(c){
 
 /* ═══════ 렌더: 헤더/배너 ═══════ */
 function renderHeaderMeta(){
-  document.getElementById('subLine').textContent='넥슨 공식 API · '+fmtTimeAgo(S.settings.lastFetch);
+  document.getElementById('subLine').textContent=BUILD+' · '+fmtTimeAgo(S.settings.lastFetch);
   const b=document.getElementById('bkBanner');
   const totalEntries=S.items.reduce((a,i)=>a+i.entries.length,0);
   const overdue= S.settings.lastBackup? (Date.now()-S.settings.lastBackup>CONFIG.BACKUP_REMIND_DAYS*864e5) : totalEntries>10;
