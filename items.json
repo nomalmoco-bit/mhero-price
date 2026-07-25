@@ -1,9 +1,13 @@
 {
+  "marketDiscover": true,
+  "notices": ["/heroes/v1/notice-event"],
   "items": [
     { "name": "골드 시세(1천만골)", "apiName": "골드", "scale": 10 },
-    { "name": "강화의 룬", "apiName": "강화의 룬", "scale": 1 },
-    { "name": "추출의 룬", "apiName": "추출의 룬", "scale": 1 },
+    { "name": "와드네의 결정", "apiName": "와드네의 결정", "scale": 1 },
+    { "name": "고급 강화의 비약", "apiName": "고급 강화의 비약", "scale": 1 },
+    { "name": "게브네의 강화석", "apiName": "게브네의 강화석", "scale": 1 },
     { "name": "귀속 해제 포션", "apiName": "귀속 해제 포션", "scale": 1 },
+    { "name": "강화의 비약", "apiName": "강화의 비약", "scale": 1 },
     { "name": "찬미", "apiName": "인챈트 스크롤", "match": "찬미", "scale": 1 },
     { "name": "일격", "apiName": "인챈트 스크롤", "match": "일격", "scale": 1 },
     { "name": "격노", "apiName": "인챈트 스크롤", "match": "격노", "scale": 1 },
@@ -11,18 +15,11 @@
     { "name": "처단하는", "apiName": "인챈트 스크롤", "match": "처단하는", "scale": 1 },
     { "name": "물드는", "apiName": "인챈트 스크롤", "match": "물드는", "scale": 1 },
     { "name": "비극의", "apiName": "인챈트 스크롤", "match": "비극의", "scale": 1 },
-    { "name": "공허한", "apiName": "인챈트 스크롤", "match": "공허한", "scale": 1 }
+    { "name": "공허한", "apiName": "인챈트 스크롤", "match": "공허한", "scale": 1 },
+    { "name": "사념", "apiName": "인챈트 스크롤", "match": "사념", "scale": 1 },
+    { "name": "가득한", "apiName": "인챈트 스크롤", "match": "가득한", "scale": 1 },
+    { "name": "고조되는", "apiName": "인챈트 스크롤", "match": "고조되는", "scale": 1 },
+    { "name": "질풍의", "apiName": "인챈트 스크롤", "match": "질풍의", "scale": 1 }
   ],
-  "probe": [
-    "귀속 해제 포션",
-    "고급 강화의 비약",
-    "강화의 비약",
-    "게브네의 강화석",
-    "계승석 조각",
-    "계승 원석",
-    "와드네의 결정",
-    "스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트",
-    "언리미티드 슬링샷 비키니 세트"
-  ],
-  "notices": []
+  "probe": []
 }
