@@ -54,6 +54,10 @@
       게임 API에 아이템명 자체가 없어 400을 반환한다. 이름을 더 찾아도 소용없다.
       → 탐색 탭의 parseMarket()이 목록 페이지 복사본을 파싱해 수동 기록한다.
       SPA라 서버에서 긁을 수 없으므로 사용자 복붙이 유일한 경로.
+■ 실측 검증 결과(2026-07-25): 사용 가능 = 골드 / 인챈트 스크롤(71종) /
+  와드네의 결정 / 고급 강화의 비약 / 게브네의 강화석. 거래 적어 가끔만 잡힘 =
+  귀속 해제 포션, 강화의 비약. 존재하지 않는 이름 = 계승석 조각, 계승 원석.
+  이벤트 공지 경로 확정 = /heroes/v1/notice-event (event_notice[] 스키마).
 ■ ★★시장이 둘로 나뉜다(실측 확정, 더 이상 이름 찾지 말 것):
   1) 인게임 거래소 = Open API 대상. 골드/인챈트 스크롤/재료 등 기본 아이템.
   2) 넥슨마켓(market.nexon.com) = '포장된 ○○'(아바타 세트·룬 포장본) 전용.
@@ -234,7 +238,7 @@ img.itic{border-radius:5px; object-fit:cover}
     <span id="saveDot">저장 대기</span>
   </div>
   <h1>망전 <b>시세 노트</b></h1>
-  <div class="sub" id="subLine">v5.8 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v5.9 · 2026-07-25 — 로딩 중…</div>
   <nav>
     <button class="on" data-tab="chart">시세</button>
     <button data-tab="browse">탐색</button>
@@ -575,7 +579,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v5.8 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v5.9 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -593,14 +597,15 @@ const ENCH_NAME='인챈트 스크롤';
 const CATALOG=[
  {cat:'재화', name:'골드 시세(1천만골)', apiName:'골드', unit:'krw', scale:10, ok:1},
  {cat:'재료', name:'와드네의 결정', apiName:'와드네의 결정', ok:1},
+ {cat:'소모품', name:'고급 강화의 비약', apiName:'고급 강화의 비약', ok:1},
+ {cat:'소모품', name:'게브네의 강화석', apiName:'게브네의 강화석', ok:1},
+ {cat:'소모품', name:'귀속 해제 포션', apiName:'귀속 해제 포션', ok:1},
+ {cat:'소모품', name:'강화의 비약', apiName:'강화의 비약', ok:1},
 /* 아바타·포장 아이템은 넥슨마켓(별도 시장)에서만 거래되어 게임 API에 없다.
    → 아래 '넥슨마켓 목록 붙여넣기'로 기록한다. */
 ].concat(ENCH_PRE.map(n=>({cat:'인챈트(접두)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
  .concat(ENCH_SUF.map(n=>({cat:'인챈트(접미)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
- .concat([
- {cat:'재료', name:'계승석 조각', apiName:'계승석 조각'},
- {cat:'재료', name:'계승 원석', apiName:'계승 원석'}
-]);
+;
 const catKey=c=>c.apiName+'|'+(c.match||'');
 
 /* ═══════ 저장소 ═══════ */
