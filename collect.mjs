@@ -11,7 +11,8 @@ import fs from 'fs';
 
 const API = 'https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const KEY = process.env.NEXON_API_KEY;
-const MAX_PAGES = 5;
+const MAX_PAGES = 5;          // 평상시(최근분 갱신)
+const MAX_PAGES_FIRST = 60;   // 최초 수집: 1주치 전부(거래 많은 종목은 5p로 2일치뿐)
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 if (!KEY) { console.error('NEXON_API_KEY 시크릿이 없습니다.'); process.exit(1); }
@@ -57,7 +58,8 @@ function detectCountKey(rec) {
   return null;
 }
 
-async function fetchAll(apiName) {
+async function fetchAll(apiName, deep) {
+  const cap = deep ? MAX_PAGES_FIRST : MAX_PAGES;
   let cursor = null, recs = [], pages = 0;
   do {
     const url = API + '?item_name=' + encodeURIComponent(apiName)
@@ -74,7 +76,8 @@ async function fetchAll(apiName) {
     cursor = j && j.next_cursor ? j.next_cursor : null;
     pages++;
     if (cursor) await sleep(300);
-  } while (cursor && pages < MAX_PAGES);
+  } while (cursor && pages < cap);
+  if (deep) console.log('   (최초 수집 ' + pages + '페이지 / ' + recs.length + '건)');
   return recs;
 }
 
@@ -85,7 +88,9 @@ for (const c of cfg.items) {
   const scale = c.scale || 1;
   const label = c.name || (c.apiName + (c.match ? '/' + c.match : ''));
   if (!(c.apiName in cache)) {
-    try { cache[c.apiName] = await fetchAll(c.apiName); }
+    // 이 이름으로 받아둔 기록이 하나도 없으면 최초 수집 → 1주치 전부
+    const seen = db.items.some(x => x.apiName === c.apiName && x.entries && x.entries.length);
+    try { cache[c.apiName] = await fetchAll(c.apiName, !seen); }
     catch (e) { cache[c.apiName] = { err: e.message }; }
     await sleep(300);
   }
