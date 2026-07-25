@@ -250,5 +250,105 @@ async function probeNames() {
   if (low.length) console.log('이름OK(거래적음): ' + low.join(' | '));
   console.log('────────────────────\n');
 }
+/* ══════════════════════════════════════════════════════════════
+   넥슨마켓 API 주소 자동 탐색 (items.json에 "marketDiscover": true 일 때)
+   넥슨마켓은 JS로 목록을 그리는 SPA라 HTML엔 아이템이 없다. 대신
+   페이지가 불러오는 JS 번들 안에 API 경로 문자열이 들어 있으므로,
+   ① 페이지 HTML → <script src> 수집  ② 번들 내려받아 /api/... 패턴 추출
+   ③ 후보 주소를 실제로 호출해 JSON이 오는지 확인
+   서버(Actions)에서 도니 CORS 제약이 없다. 개인 기록용이므로 호출은
+   최소로(실행당 1회) 유지할 것.
+   ══════════════════════════════════════════════════════════════ */
+const MARKET_PAGE = 'https://market.nexon.com/ko/trade-list/MHERO?order=register&list=1';
+const GD_HOST = 'https://public.api.nexon.com';   // ★실측: 넥슨마켓 백엔드 호스트
+const GD_BASE = '/gdweb/goodeal/v1';              // ★실측: 경로 접두어
+/* 로그인이 필요한 개인 엔드포인트는 {"code":2,"message":"x-inface-user-uid 헤더가 없습니다"}를
+   돌려준다. 판매 목록은 비로그인 조회가 되므로 그 응답을 찾는 게 목표. */
+const GD_GUESS = [
+  '/products', '/products/search', '/product/list',
+  '/trades', '/trade/list', '/trade-list', '/tradeList',
+  '/items', '/item/list', '/goods', '/goods/list',
+  '/sales', '/sale/list', '/market/products', '/search/products'
+];
+const GD_QS = [
+  '?gameCode=MHERO&page=1&size=20&order=register',
+  '?gameCode=MHERO&page=1&pageSize=20',
+  '?gameCode=MHERO',
+  ''
+];
+function shortBody(t){ return t.slice(0, 400).replace(/\s+/g, ' '); }
+async function tryGd(url){
+  try{
+    const r = await fetch(url, { headers: {
+      'user-agent': 'Mozilla/5.0', 'accept': 'application/json', 'accept-language': 'ko' } });
+    const ct = r.headers.get('content-type') || '';
+    const body = await r.text();
+    const isJson = /json/.test(ct);
+    let verdict = '';
+    if (isJson) {
+      if (/x-inface-user-uid/.test(body)) verdict = '🔒 로그인 필요';
+      else if (/"code"\s*:\s*0|"data"\s*:\s*[\[{]/.test(body)) verdict = '✅ 데이터 응답';
+      else verdict = 'ℹ️ JSON';
+    }
+    console.log(`  [${r.status}] ${verdict} ${url}`);
+    if (isJson && verdict !== '🔒 로그인 필요') console.log('        ↳', shortBody(body));
+    return verdict === '✅ 데이터 응답';
+  }catch(e){ console.log('  [✕]', url, e.message); return false; }
+}
+async function discoverMarket() {
+  if (!cfg.marketDiscover) return;
+  console.log('\n──── 넥슨마켓 API 탐색 ────');
+
+  // ① 페이지 JS 번들에서 실제 경로 문자열 추출 (가장 정확)
+  let srcs = [];
+  try {
+    const r = await fetch(MARKET_PAGE, { headers: { 'user-agent': 'Mozilla/5.0', 'accept-language': 'ko' } });
+    const html = await r.text();
+    console.log('페이지 응답:', r.status);
+    srcs = [...html.matchAll(/<script[^>]+src=["\']([^"\']+)["\']/g)].map(m => m[1])
+      .map(u => u.startsWith('http') ? u : ('https://market.nexon.com' + (u.startsWith('/') ? '' : '/') + u))
+      .filter(u => /market\.nexon\.com/.test(u));
+  } catch (e) { console.log('✕ 페이지 로드 실패', e.message); }
+  console.log('스크립트', srcs.length + '개');
+
+  const found = new Set();
+  for (const u of srcs.slice(0, 10)) {
+    try {
+      const t = await (await fetch(u)).text();
+      for (const m of t.matchAll(/["\'`](\/gdweb\/[^"\'`\s]{3,160})["\'`]/g)) found.add(m[1]);
+      for (const m of t.matchAll(/["\'`](https:\/\/public\.api\.nexon\.com\/[^"\'`\s]{0,160})["\'`]/g)) found.add(m[1]);
+      for (const m of t.matchAll(/["\'`](\/api\/[^"\'`\s]{3,120})["\'`]/g)) found.add(m[1]);
+    } catch (e) {}
+    await sleep(200);
+  }
+  const paths = [...found];
+  console.log('번들에서 찾은 경로', paths.length + '개');
+  paths.slice(0, 40).forEach(p => console.log('   ', p));
+
+  // ② 번들 경로 중 목록스러운 것 실제 호출
+  const likely = paths.filter(p => /trade|list|product|goods|item|sale|search/i.test(p)).slice(0, 10);
+  if (likely.length) {
+    console.log('\n[번들 경로 호출]');
+    for (const p of likely) {
+      const url = p.startsWith('http') ? p : GD_HOST + p;
+      await tryGd(url + (url.includes('?') ? '' : GD_QS[0]));
+      await sleep(400);
+    }
+  }
+
+  // ③ 못 찾았으면 알려진 규칙으로 후보 조합 시도
+  console.log('\n[추정 경로 시도]');
+  let hit = 0;
+  for (const g of GD_GUESS) {
+    for (const qs of GD_QS.slice(0, 2)) {
+      const ok = await tryGd(GD_HOST + GD_BASE + g + qs);
+      if (ok) { hit++; break; }
+      await sleep(350);
+    }
+    if (hit >= 2) break;
+  }
+  console.log('────────────────────────\n');
+}
+await discoverMarket();
 await probeNames();
 await collectNotices();
