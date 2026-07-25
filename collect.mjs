@@ -1,29 +1,115 @@
-# 망전 시세 자동 수집 — 매일 KST 오전 9시·오후 6시 (크론은 UTC 기준)
-# 수동 실행: Actions 탭 → collect-prices → Run workflow
-name: collect-prices
-on:
-  schedule:
-    - cron: '0 0 * * *'    # UTC 00:00 = KST 09:00
-    - cron: '0 9 * * *'    # UTC 09:00 = KST 18:00
-  workflow_dispatch:
-permissions:
-  contents: write
-jobs:
-  collect:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: 시세 수집
-        run: node collect.mjs
-        env:
-          NEXON_API_KEY: ${{ secrets.NEXON_API_KEY }}
-      - name: 커밋·푸시
-        run: |
-          git config user.name "price-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add data/prices.json
-          git diff --cached --quiet || git commit -m "collect $(date -u +%F_%H%M)"
-          git push
+// 망전 시세 자동 수집기 — GitHub Actions에서 하루 2회 실행
+// (유지보수 노트) 출력 형식은 툴의 mergeRemote()와 계약:
+//   data/prices.json = { updated, items:[{ apiName, scale, priceKeyUsed,
+//                                          entries:[{d,p,s}] }] }
+// 형식을 바꾸면 망전_시세_노트.html의 mergeRemote()도 함께 고칠 것.
+// API 제약: 최근 1주 / 페이지당 500(next_cursor) / 24시간 10건 미만 거래
+// 아이템은 빈 응답이 정상(예: 슬링샷). 키는 GitHub Secret NEXON_API_KEY.
+import fs from 'fs';
+
+const API = 'https://open.api.nexon.com/heroes/v2/marketplace/market-history';
+const KEY = process.env.NEXON_API_KEY;
+const MAX_PAGES = 5;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+if (!KEY) { console.error('NEXON_API_KEY 시크릿이 없습니다.'); process.exit(1); }
+
+const cfg = JSON.parse(fs.readFileSync('items.json', 'utf8'));
+const OUT = 'data/prices.json';
+let db = { updated: '', items: [] };
+if (fs.existsSync(OUT)) { try { db = JSON.parse(fs.readFileSync(OUT, 'utf8')); } catch (e) {} }
+if (!Array.isArray(db.items)) db.items = [];
+
+// ── 응답 스키마 추론(툴과 동일 로직의 축약판) ──
+function findRecords(j) {
+  if (Array.isArray(j)) return j;
+  if (j && Array.isArray(j.item)) return j.item;
+  if (j && typeof j === 'object')
+    for (const k in j)
+      if (Array.isArray(j[k]) && j[k].length && typeof j[k][0] === 'object') return j[k];
+  return [];
+}
+function detectPriceKey(rec) {
+  const out = [];
+  (function walk(o, path) {
+    if (o && typeof o === 'object') { for (const k in o) walk(o[k], path ? path + '.' + k : k); return; }
+    if (typeof o === 'number' && o > 0) {
+      const key = path.split('.').pop();
+      if (/price|가격|단가|amount|gold/i.test(key))
+        out.push({ key: path, prio: /average|avg|평균/i.test(key) ? 0 : 1, v: o });
+    }
+  })(rec, '');
+  out.sort((a, b) => a.prio - b.prio || b.v - a.v);
+  return out.length ? out[0].key : null;
+}
+const getPath = (o, path) => { for (const k of path.split('.')) { if (o == null) return null; o = o[k]; } return o; };
+function detectDateKey(rec) {
+  for (const k in rec)
+    if (/date|time|일자|기간/i.test(k) && typeof rec[k] === 'string' && /\d{4}-\d{2}-\d{2}/.test(rec[k])) return k;
+  return null;
+}
+function detectCountKey(rec) {
+  for (const k in rec)
+    if (/count|건수|quantity|qty|거래|판매/i.test(k) && typeof rec[k] === 'number') return k;
+  return null;
+}
+
+async function fetchAll(apiName) {
+  let cursor = null, recs = [], pages = 0;
+  do {
+    const url = API + '?item_name=' + encodeURIComponent(apiName)
+      + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+    const r = await fetch(url, { headers: { 'x-nxopen-api-key': KEY } });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' (' + apiName + ')');
+    const j = await r.json();
+    recs = recs.concat(findRecords(j));
+    cursor = j && j.next_cursor ? j.next_cursor : null;
+    pages++;
+    if (cursor) await sleep(300);
+  } while (cursor && pages < MAX_PAGES);
+  return recs;
+}
+
+let changed = false;
+for (const c of cfg.items) {
+  const scale = c.scale || 1;
+  let recs = [];
+  try { recs = await fetchAll(c.apiName); }
+  catch (e) { console.log('✕', c.apiName, e.message); continue; }
+  let ent = db.items.find(x => x.apiName === c.apiName);
+  if (!ent) { ent = { apiName: c.apiName, scale, priceKeyUsed: null, entries: [] }; db.items.push(ent); }
+  if (!recs.length) { console.log('·', c.apiName, '거래 기록 없음(저유동/이름 확인)'); continue; }
+  if (!ent.priceKeyUsed) ent.priceKeyUsed = c.priceKey || detectPriceKey(recs[0]);
+  if (!ent.priceKeyUsed) { console.log('✕', c.apiName, '가격 필드를 못 찾음'); continue; }
+  const dk = detectDateKey(recs[0]), ck = detectCountKey(recs[0]);
+  const byDay = {};
+  for (const r of recs) {
+    const p = getPath(r, ent.priceKeyUsed);
+    if (typeof p !== 'number') continue;
+    let d = new Date().toISOString().slice(0, 10);
+    if (dk) { const m = String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if (m) d = m[0]; }
+    if (!byDay[d]) byDay[d] = { sum: 0, n: 0, cnt: 0 };
+    byDay[d].sum += p; byDay[d].n++;
+    byDay[d].cnt += (ck && typeof r[ck] === 'number') ? r[ck] : 1;
+  }
+  let added = 0, updated = 0;
+  for (const d in byDay) {
+    const p = Math.round(byDay[d].sum / byDay[d].n * scale);
+    const e = { d, p, s: byDay[d].cnt };
+    const i = ent.entries.findIndex(x => x.d === d);
+    if (i > -1) { if (ent.entries[i].p !== p || ent.entries[i].s !== e.s) { ent.entries[i] = e; updated++; } }
+    else { ent.entries.push(e); added++; }
+  }
+  ent.entries.sort((a, b) => (a.d < b.d ? -1 : 1));
+  if (added || updated) changed = true;
+  console.log('✓', c.apiName, '신규', added, '갱신', updated, '(키:', ent.priceKeyUsed + ')');
+}
+
+if (changed || !fs.existsSync(OUT)) {
+  db.updated = new Date().toISOString();
+  fs.mkdirSync('data', { recursive: true });
+  fs.writeFileSync(OUT, JSON.stringify(db, null, 1));
+  console.log('저장 완료:', OUT);
+} else {
+  console.log('변경 없음 — 저장 생략');
+}
