@@ -1,8 +1,12 @@
 {
   "items": [
-    { "apiName": "포장된 강화의 룬", "scale": 1 },
-    { "apiName": "포장된 추출의 룬", "scale": 1 },
-    { "apiName": "포장된 스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트", "scale": 1 },
-    { "apiName": "골드", "scale": 10 }
+    { "name": "골드 시세(1천만골)", "apiName": "골드", "scale": 10 },
+    { "name": "강화의 룬", "apiName": "포장된 강화의 룬", "scale": 1 },
+    { "name": "추출의 룬", "apiName": "포장된 추출의 룬", "scale": 1 },
+    { "name": "귀속 해제 포션", "apiName": "포장된 귀속 해제 포션", "scale": 1 },
+    { "name": "슬링샷 세트", "apiName": "포장된 스페셜 더블 볼륨업P+ 언리미티드 슬링샷 비키니 세트", "scale": 1 },
+    { "name": "격노 인챈트", "apiName": "인챈트 스크롤 (무기한)", "match": "격노", "scale": 1 },
+    { "name": "찬미 인챈트", "apiName": "인챈트 스크롤 (무기한)", "match": "찬미", "scale": 1 },
+    { "name": "일격 인챈트", "apiName": "인챈트 스크롤 (무기한)", "match": "일격", "scale": 1 }
   ]
 }
