@@ -63,7 +63,12 @@ async function fetchAll(apiName) {
     const url = API + '?item_name=' + encodeURIComponent(apiName)
       + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
     const r = await fetch(url, { headers: { 'x-nxopen-api-key': KEY } });
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' (' + apiName + ')');
+    if (!r.ok) {
+      let detail = '';
+      try { const j = await r.json(); if (j.error) detail = ' ' + (j.error.name || '') + ' ' + (j.error.message || ''); } catch (e) {}
+      // 400 = 존재하지 않는 아이템명(이름 오타). 200+빈배열 = 이름은 맞고 24h 거래 10건 미달.
+      throw new Error('HTTP ' + r.status + detail);
+    }
     const j = await r.json();
     recs = recs.concat(findRecords(j));
     cursor = j && j.next_cursor ? j.next_cursor : null;
@@ -91,7 +96,9 @@ for (const c of cfg.items) {
   let ent = db.items.find(x => x.apiName === c.apiName && (x.match || '') === (c.match || ''));
   if (!ent) { ent = { apiName: c.apiName, match: c.match || null, scale, priceKeyUsed: null, entries: [] }; db.items.push(ent); }
   if (!recs.length) { console.log('·', label, '거래 기록 없음(저유동/이름/필터 확인)'); continue; }
-  if (!ent.priceKeyUsed) ent.priceKeyUsed = c.priceKey || detectPriceKey(recs[0]);
+  // 확정: 거래소 응답의 평균가 필드는 average_price
+  if (!ent.priceKeyUsed) ent.priceKeyUsed = c.priceKey
+    || ('average_price' in recs[0] ? 'average_price' : detectPriceKey(recs[0]));
   if (!ent.priceKeyUsed) { console.log('✕', label, '가격 필드를 못 찾음'); continue; }
   const dk = detectDateKey(recs[0]), ck = detectCountKey(recs[0]);
   const byDay = {};
@@ -192,4 +199,38 @@ async function collectNotices() {
   fs.writeFileSync(F, JSON.stringify(db2, null, 1));
   console.log('이벤트 저장:', F, '신규', added, '총', db2.events.length);
 }
+/* ══════════════════════════════════════════════════════════════
+   아이템명 검증기 — items.json의 "probe": ["후보명", ...]
+   판정 규칙(실측 확인):
+     400 → 그런 아이템명이 존재하지 않음(오타/추정 실패)
+     200 + 기록 있음 → 사용 가능
+     200 + 빈 배열 → 이름은 유효하나 최근 24h 거래 10건 미만
+   결과를 로그에 표로 남긴다. 확정되면 items에 옮기고 probe는 비우면 된다.
+   ══════════════════════════════════════════════════════════════ */
+async function probeNames() {
+  const list = Array.isArray(cfg.probe) ? cfg.probe : [];
+  if (!list.length) return;
+  console.log('\n──── 아이템명 검증 ────');
+  const ok = [], low = [], bad = [];
+  for (const nm of list) {
+    const url = API + '?item_name=' + encodeURIComponent(nm);
+    try {
+      const r = await fetch(url, { headers: { 'x-nxopen-api-key': KEY } });
+      if (r.status === 400) { bad.push(nm); console.log('✕ 없음     ', nm); }
+      else if (!r.ok) { console.log('? HTTP' + r.status, nm); }
+      else {
+        const j = await r.json();
+        const n = findRecords(j).length;
+        if (n) { ok.push(nm); console.log('✓ 사용가능 ', nm, '(' + n + '건)'); }
+        else { low.push(nm); console.log('△ 이름OK   ', nm, '(24h 거래 10건 미만)'); }
+      }
+    } catch (e) { console.log('✕ 오류     ', nm, e.message); }
+    await sleep(300);
+  }
+  console.log('\n요약: 사용가능 ' + ok.length + ' / 이름만OK ' + low.length + ' / 없음 ' + bad.length);
+  if (ok.length) console.log('사용가능: ' + ok.join(' | '));
+  if (low.length) console.log('이름OK(거래적음): ' + low.join(' | '));
+  console.log('────────────────────\n');
+}
+await probeNames();
 await collectNotices();
