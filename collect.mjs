@@ -347,6 +347,49 @@ async function discoverMarket() {
   console.log('\n결론: 자동 조회 경로를 못 찾음 → 목록 붙여넣기 방식 유지');
   console.log('────────────────────────\n');
 }
+/* ══ 골드 수급 자동 기록 ══
+   상위 30명 매수·매도 물량은 '최근 1주 누적'이라 매일 값이 바뀐다.
+   앱에서만 기록하면 사용자가 앱을 여는 날에만 점이 찍혀 추이가 끊긴다.
+   서버에서 매 실행마다 남겨야 방향이 바뀌는 순간을 놓치지 않는다. */
+const GOLD_BUY = 'https://open.api.nexon.com/heroes/v2/marketplace/gold-market-buy-top-30';
+const GOLD_SELL= 'https://open.api.nexon.com/heroes/v2/marketplace/gold-market-sell-top-30';
+async function collectGoldFlow() {
+  console.log('\n──── 골드 수급 ────');
+  const get = async (url, side) => {
+    const r = await fetch(url, { headers: { 'x-nxopen-api-key': KEY } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const arr = (j && (j[side + '_gold'] || j[side])) || [];
+    if (!Array.isArray(arr)) return 0;
+    return arr.reduce((a, x) =>
+      a + (Number(x[side + '_gold'] ?? x['total_' + side + '_gold'] ?? 0) || 0), 0);
+  };
+  let buy, sell;
+  try {
+    buy = await get(GOLD_BUY, 'buy');
+    await sleep(300);
+    sell = await get(GOLD_SELL, 'sell');
+  } catch (e) { console.log('✕ 수급 조회 실패:', e.message); return; }
+  if (!buy && !sell) { console.log('· 수급 데이터 없음'); return; }
+
+  const file = 'data/gold-flow.json';
+  let db = { updated: '', flow: [] };
+  try { db = JSON.parse(await fs.readFile(file, 'utf8')); } catch (e) {}
+  if (!Array.isArray(db.flow)) db.flow = [];
+  const d = new Date().toISOString().slice(0, 10);
+  const rec = { d, buy, sell };
+  const i = db.flow.findIndex(x => x.d === d);
+  if (i > -1) db.flow[i] = rec; else db.flow.push(rec);
+  if (db.flow.length > 400) db.flow = db.flow.slice(-400);
+  db.updated = new Date().toISOString();
+  await fs.mkdir('data', { recursive: true });
+  await fs.writeFile(file, JSON.stringify(db, null, 1));
+  const share = buy + sell ? (buy / (buy + sell) * 100) : 50;
+  console.log(`저장: 매수 ${(buy/1e8).toFixed(1)}억 · 매도 ${(sell/1e8).toFixed(1)}억 · 매수비중 ${share.toFixed(1)}%`);
+  console.log('────────────────\n');
+}
+await collectGoldFlow();
+
 await discoverMarket();
 await probeNames();
 await collectNotices();
