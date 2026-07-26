@@ -40,10 +40,23 @@
      (인챈트 16종 = 호출 1회). 스캔 결과는 메모리 전용(저장 안 함).
   5) 레이아웃: settings.layout 'auto|mobile|desktop' → body.L-* 클래스.
      960px 이상 or 강제 desktop이면 section에 CSS 2단 칼럼(multicol).
+■ 차트 글씨: SVG는 viewBox 폭 → 컨테이너 폭으로 축소되므로 font-size를
+  고정하면 모바일에서 절반 이하로 렌더링된다(W=700을 350px에 그리면 ×0.5).
+  renderChart의 FS/FS2는 화면에서 최소 11px로 보이도록 배율을 역산한 값이다.
+  W나 레이아웃을 바꾸면 이 계산이 자동으로 따라가므로 상수로 되돌리지 말 것.
+■ 레이아웃 함정 2가지(둘 다 실제로 겪음, 반복 금지):
+  1) ID 선택자(#tab-*, #loginOv)는 .hide(클래스)보다 우선한다 →
+     display를 지정하는 규칙에는 반드시 :not(.hide)를 붙일 것.
+  2) 그리드 안에서 position:sticky를 쓰면 스크롤 시 자기 영역을 벗어나
+     아래 카드를 덮어 뒤 내용을 가린다 → 카드 고정 대신 내부 스크롤로 해결.
 ■ 넓은 화면(≥1000px 또는 layout='desktop'): #tab-chart는 목적형 그리드
   (좌 2.1fr = 히어로+차트 / 우 1fr = 관심종목 레일(sticky)+지표),
   그 외 카드는 전체 폭. 차트는 viewBox 가로를 700→1180으로 바꿔
   '세로로 늘어나는' 대신 실제로 가로를 쓴다. resize 시 디바운스 후 재렌더.
+■ 색 대비는 눈대중이 아니라 계산으로 맞춘다(WCAG AA 4.5:1, 카드 배경 #161E2C 기준).
+  --dim은 #5F6C85(3.16, 미달) → #7A87A2(4.63)로 교체했다. 작은 안내문에 쓰이므로
+  이보다 어둡게 내리지 말 것. 매수·매도 버튼은 의미색(빨강/파랑)을 유지하되
+  흰 글씨(3.0 미달) 대신 어두운 글씨(6.0+)를 쓴다.
 ■ UI 구조(v6.1): 정보 위계를 증권앱식으로 재배치.
   시세탭 = 히어로(선택종목 가격·등락·일중레인지·신호) → 차트 → 관심종목
   리스트 → 지표 → 수집 → 기록 → 이벤트. 탭바는 하단 고정(엄지 도달).
@@ -126,7 +139,7 @@
    ═══════════════════════════════════════════════════════════ */
 :root{
   --ink:#0E1420; --surface:#161E2C; --surface2:#1D2739; --line:#26324A;
-  --text:#E8EDF7; --muted:#8A97AE; --dim:#5F6C85;
+  --text:#E8EDF7; --muted:#8A97AE; --dim:#7A87A2;   /* dim: 3.16→4.63 (WCAG AA 통과) */
   --gold:#E9B44C; --up:#FF5C5C; --dn:#4D8DFF; --ok:#3ECF8E; --ma2:#B18CFF;
   --r:14px; --r-sm:10px;
   --nav-h:60px;
@@ -147,12 +160,14 @@ header{position:sticky; top:0; z-index:30; background:rgba(14,20,32,.92);
 header h1{margin:0; font-size:15px; font-weight:800; letter-spacing:-.02em; flex:1}
 header h1 b{color:var(--gold)}
 .hRight{display:flex; align-items:center; gap:8px}
-#saveDot{font-size:10.5px; color:var(--dim)}
+#saveDot{font-size:11px; color:var(--dim)}
 #saveDot.on{color:var(--ok)}
-#who{font-size:10.5px; color:var(--muted)}
+#who{font-size:11px; color:var(--muted)}
 #layoutBtn{background:var(--surface2); border:1px solid var(--line); color:var(--muted);
-  border-radius:99px; padding:4px 10px; font-size:10.5px; cursor:pointer}
-header .sub{font-size:10.5px; color:var(--dim); margin-top:3px}
+  border-radius:99px; padding:7px 12px; font-size:11px; cursor:pointer; position:relative}
+/* 헤더는 좁아야 하므로 보이는 크기는 작게 두고, 눌리는 범위만 44px로 넓힌다 */
+#layoutBtn::after{content:''; position:absolute; inset:-9px}
+header .sub{font-size:11px; color:var(--dim); margin-top:3px}
 
 /* ── 하단 탭바(엄지 도달 범위) ── */
 nav{position:fixed; left:0; right:0; bottom:0; z-index:40; display:flex;
@@ -173,48 +188,70 @@ main{padding:14px 14px calc(var(--nav-h) + 28px); max-width:620px; margin:0 auto
   body.L-auto main, body.L-desktop main{
     max-width:min(1560px, 96vw); padding:18px 18px calc(var(--nav-h) + 32px);
   }
-  body.L-auto #tab-chart, body.L-desktop #tab-chart{
-    display:grid; grid-template-columns:minmax(0,2.1fr) minmax(300px,1fr);
+  /* ★ :not(.hide) 필수 — ID 선택자가 .hide보다 우선순위가 높아서,
+     이걸 빼면 숨겨야 할 탭까지 전부 표시된다(v6.8에서 실제로 발생한 버그). */
+  body.L-auto #tab-chart:not(.hide), body.L-desktop #tab-chart:not(.hide){
+    display:grid; grid-template-columns:minmax(0,2.1fr) minmax(320px,1fr);
     gap:16px; align-items:start;
   }
   body.L-auto #tab-chart > *, body.L-desktop #tab-chart > *{ margin-bottom:0 }
+  /* 자리를 명시해 빈 칸이 생기지 않게 한다:
+     1행 히어로+관심종목 / 2행 차트 / 3행 지표+골드 / 4행부터 전체 폭 */
   body.L-auto #tab-chart .hero, body.L-desktop #tab-chart .hero{ grid-column:1; grid-row:1 }
   body.L-auto #tab-chart .chartCard, body.L-desktop #tab-chart .chartCard{ grid-column:1; grid-row:2 }
+  /* ★sticky 금지: 고정하면 스크롤 시 자기 영역을 벗어나 아래 카드 위를 덮어
+     뒤 내용을 가린다(v6.9에서 실제 발생). 종목 전환은 히어로 탭으로 이동 가능하므로
+     고정할 이유가 없다. 목록이 길어질 때만 카드 안에서 스크롤시킨다. */
   body.L-auto #tab-chart .wlCard, body.L-desktop #tab-chart .wlCard{
-    grid-column:2; grid-row:1 / span 2; position:sticky; top:76px; max-height:calc(100vh - 120px); overflow:auto }
-  body.L-auto #tab-chart .statCard, body.L-desktop #tab-chart .statCard{ grid-column:2 }
-  body.L-auto #tab-chart .goldCard, body.L-desktop #tab-chart .goldCard{ grid-column:2 }
-  body.L-auto #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard),
-  body.L-desktop #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard){ grid-column:1 / -1 }
-  body.L-auto #tab-chart .statCard .grid, body.L-desktop #tab-chart .statCard .grid{ grid-template-columns:1fr }
-  /* 나머지 탭은 균형 잡힌 2단 */
-  body.L-auto #tab-browse, body.L-auto #tab-sim, body.L-auto #tab-data,
-  body.L-desktop #tab-browse, body.L-desktop #tab-sim, body.L-desktop #tab-data{
+    grid-column:2; grid-row:1 / span 2; }
+  body.L-auto #tab-chart .wlCard #board, body.L-desktop #tab-chart .wlCard #board{
+    max-height:min(62vh, 620px); overflow-y:auto; overscroll-behavior:contain }
+  body.L-auto #tab-chart .statCard, body.L-desktop #tab-chart .statCard{ grid-column:1; grid-row:3 }
+  body.L-auto #tab-chart .goldCard, body.L-desktop #tab-chart .goldCard{ grid-column:2; grid-row:3 }
+  body.L-auto #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard):not(.goldCard),
+  body.L-desktop #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard):not(.goldCard){
+    grid-column:1 / -1 }
+  body.L-auto #tab-chart .statCard .grid, body.L-desktop #tab-chart .statCard .grid{
+    grid-template-columns:repeat(2,minmax(0,1fr)) }
+  /* 나머지 탭도 동일하게 :not(.hide) 적용 */
+  body.L-auto #tab-browse:not(.hide), body.L-auto #tab-sim:not(.hide), body.L-auto #tab-data:not(.hide),
+  body.L-desktop #tab-browse:not(.hide), body.L-desktop #tab-sim:not(.hide), body.L-desktop #tab-data:not(.hide){
     display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start }
   body.L-auto #tab-sim > *, body.L-desktop #tab-sim > *,
   body.L-auto #tab-browse > *, body.L-desktop #tab-browse > *,
   body.L-auto #tab-data > *, body.L-desktop #tab-data > *{ margin-bottom:0 }
-  /* 하단 탭바는 넓은 화면에서 가운데 정렬된 알약 형태로 */
   nav{left:50%; transform:translateX(-50%); width:min(560px,90vw); bottom:16px;
     border:1px solid var(--line); border-radius:99px; height:56px; overflow:hidden}
 }
 body.L-mobile main{max-width:620px !important; padding:14px 14px calc(var(--nav-h) + 28px) !important}
-body.L-mobile section{display:block !important}
+body.L-mobile section:not(.hide){display:block !important}
+body.L-mobile section.hide{display:none !important}
 section .card,section .hero{break-inside:avoid}
+/* 터치 피드백 — 눌린 게 보이지 않으면 폰에서 반응이 없다고 느낀다 */
+.wl{transition:background .12s, transform .08s}
+.wl:active{background:var(--surface2); transform:scale(.995)}
+.btn:active,.chip:active,.del:active,.star:active{filter:brightness(.9)}
+.seg button{transition:background .12s, color .12s}
+nav button:active{opacity:.7}
+/* 스크롤 이동 시 헤더에 가려지지 않게 */
+.hero,.card{scroll-margin-top:80px}
+/* 터치 목표 최소 크기 */
+.star,.del{min-height:34px}
+nav button{min-height:48px}
 
 /* ── 카드 ── */
 .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
-  padding:14px; margin-bottom:12px}
+  padding:14px; margin-bottom:18px}   /* 근접성: 카드 사이 간격 > 카드 내부 간격 */
 .card h2{margin:0 0 12px; font-size:11px; font-weight:800; color:var(--dim);
   letter-spacing:.08em; text-transform:uppercase}
 .card h2 b{color:var(--gold); text-transform:none; letter-spacing:0}
 
 /* ── 히어로: 선택 종목 시세 ── */
 .hero{background:linear-gradient(160deg,#1B2436 0%,var(--surface) 60%);
-  border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:12px}
+  border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:18px}
 .heroTop{display:flex; align-items:center; gap:10px; margin-bottom:10px}
 .heroTop .nm{flex:1; font-size:14px; font-weight:700; letter-spacing:-.01em}
-.heroTop .tag{font-size:10px; color:var(--dim); font-weight:600}
+.heroTop .tag{font-size:11px; color:var(--dim); font-weight:600}
 #heroPrice{font-size:34px; font-weight:800; letter-spacing:-.035em; line-height:1.1}
 .heroSub{display:flex; align-items:baseline; gap:8px; margin-top:4px; flex-wrap:wrap}
 #heroChg{font-size:14px; font-weight:800}
@@ -225,7 +262,7 @@ section .card,section .hero{break-inside:avoid}
   background:linear-gradient(90deg,var(--dn),var(--surface2),var(--up)); opacity:.85}
 .rangeDot{position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px;
   border-radius:50%; background:var(--text); border:2px solid var(--ink); box-shadow:0 0 0 1px var(--line)}
-.rangeLbl{display:flex; justify-content:space-between; font-size:10.5px;
+.rangeLbl{display:flex; justify-content:space-between; font-size:11px;
   color:var(--dim); margin-top:6px}
 .heroSig{margin-top:12px; font-size:12.5px; color:var(--muted); line-height:1.6}
 .heroSig div{padding-left:9px; border-left:2px solid var(--line); margin-top:5px}
@@ -243,21 +280,22 @@ section .card,section .hero{break-inside:avoid}
 .wl .mid{flex:1; min-width:0}
 .wl .nm{font-size:14px; font-weight:700; white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; letter-spacing:-.01em}
-.wl .meta{font-size:10.5px; color:var(--dim); margin-top:2px}
+.wl .meta{font-size:11px; color:var(--dim); margin-top:2px}
 .wl .spark{flex:0 0 46px; opacity:.75}
 .wl .rt{flex:0 0 auto; text-align:right}
 .wl .px{font-size:14px; font-weight:700}
 .wl .chg{font-size:11.5px; font-weight:700; margin-top:2px}
 .wl.add{color:var(--dim); font-size:13px; justify-content:center; font-weight:600}
+.wl.mover{background:linear-gradient(90deg,rgba(233,180,76,.07),transparent); border-radius:var(--r-sm)}
 
 /* ── 지표 칩 ── */
 .chips{display:flex; flex-wrap:wrap; gap:7px}
 .stat{background:var(--surface2); border-radius:99px; padding:6px 12px; font-size:12px}
 .stat b{font-weight:700; margin-left:5px}
-.stat span.k{color:var(--dim)}
+.stat span.k{color:var(--muted)}
 .grid{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:10px}
 .grid .cell{background:var(--surface2); border-radius:var(--r-sm); padding:10px 12px}
-.cell .k{font-size:10.5px; color:var(--dim)}
+.cell .k{font-size:11px; color:var(--muted)}  /* surface2 위에선 dim이 4.15로 미달 */
 .cell .v{font-size:15px; font-weight:700; margin-top:2px}
 .upC{color:var(--up)} .dnC{color:var(--dn)} .goldC{color:var(--gold)}
 .maC{color:#3ECF8E} .okC{color:var(--ok)}
@@ -266,14 +304,17 @@ section .card,section .hero{break-inside:avoid}
 .seg{display:flex; gap:0; background:var(--surface2); border-radius:var(--r-sm);
   padding:3px; margin:0 0 12px}
 .seg button{flex:1; background:none; border:0; color:var(--dim); border-radius:8px;
-  padding:8px 0; font-size:12.5px; font-weight:700; cursor:pointer}
+  padding:12px 0; font-size:12.5px; font-weight:700; cursor:pointer; min-height:44px}
 .seg button.on{background:var(--surface); color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.modeRow{display:flex; gap:8px; margin-bottom:12px}
-.modeRow select{flex:1}
-.modeRow button{flex:0 0 auto; background:var(--surface2); border:1px solid var(--line);
-  color:var(--muted); border-radius:var(--r-sm); padding:0 14px; font-size:12.5px;
-  font-weight:700; cursor:pointer}
-.modeRow button.on{border-color:var(--gold); color:var(--gold)}
+.modeRow{display:flex; gap:6px; margin-bottom:12px; background:var(--surface2);
+  border-radius:var(--r-sm); padding:3px}
+.modeRow select{flex:1; background:transparent; border:0; padding:8px 10px; font-size:12.5px;
+  color:var(--text)}
+/* 일관성: 기간 세그먼트(.seg)와 같은 생김새·같은 상호작용으로 통일 */
+.modeRow button{flex:0 0 auto; background:none; border:0; color:var(--dim);
+  border-radius:8px; padding:12px 14px; font-size:12.5px; font-weight:700; cursor:pointer;
+  min-height:44px}
+.modeRow button.on{background:var(--surface); color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,.3)}
 label{display:block; font-size:11.5px; color:var(--muted); margin:11px 0 5px; font-weight:600}
 input,select,textarea{width:100%; background:var(--surface2); border:1px solid transparent;
   color:var(--text); border-radius:var(--r-sm); padding:11px 12px; font-size:15px}
@@ -285,8 +326,10 @@ textarea{min-height:88px; font-family:ui-monospace,SFMono-Regular,monospace; fon
   margin-top:12px; cursor:pointer}
 .btn:disabled{opacity:.45}
 .btn.ghost{background:var(--surface2); color:var(--text)}
-.btn.sm{padding:10px; font-size:13px; margin-top:8px}
-.btn.buy{background:var(--up); color:#fff} .btn.sell{background:var(--dn); color:#fff}
+.btn.sm{padding:12px; font-size:13px; margin-top:8px; min-height:44px}
+/* 매수·매도 버튼: 색은 차트와 같은 의미색을 유지하고, 글자를 어둡게 해서 대비 확보
+   (흰 글씨 3.0 → 어두운 글씨 6.0+, WCAG AA 통과) */
+.btn.buy{background:var(--up); color:#1A0606} .btn.sell{background:var(--dn); color:#04101F}
 .hint{font-size:11.5px; color:var(--dim); margin-top:8px; line-height:1.6}
 .warn{font-size:12px; color:var(--up); line-height:1.6}
 .banner{background:rgba(233,180,76,.10); border:1px solid rgba(233,180,76,.35);
@@ -294,24 +337,30 @@ textarea{min-height:88px; font-family:ui-monospace,SFMono-Regular,monospace; fon
 
 /* ── 표 ── */
 table{width:100%; border-collapse:collapse; font-size:13px}
-th{color:var(--dim); font-size:10.5px; text-align:left; padding:6px; font-weight:700;
+th{color:var(--dim); font-size:11px; text-align:left; padding:6px; font-weight:700;
   letter-spacing:.03em; border-bottom:1px solid var(--line)}
 td{padding:10px 6px; border-bottom:1px solid var(--line); vertical-align:middle}
+/* 정렬 원칙: 숫자는 오른쪽 정렬로 통일해야 자릿수 비교가 눈으로 된다 */
+td.num{text-align:right}
+th.num{text-align:right}
 tr:last-child td{border-bottom:0}
 td .memo{color:var(--dim); font-size:11px; margin-top:2px}
 .del{color:var(--dim); background:var(--surface2); border:0; font-size:11.5px;
   cursor:pointer; padding:5px 9px; border-radius:7px; font-weight:600}
-.badge{font-size:10px; border-radius:5px; padding:2px 6px; font-weight:700}
+.badge{font-size:11px; border-radius:5px; padding:2px 6px; font-weight:700}
 .bOk{background:rgba(62,207,142,.15); color:var(--ok)}
 .bNo{background:rgba(255,92,92,.15); color:var(--up)}
 .bBlue{background:rgba(77,141,255,.15); color:var(--dn)}
 .itemRow{display:flex; align-items:center; gap:9px; padding:11px 0; border-bottom:1px solid var(--line)}
 .itemRow:last-child{border-bottom:0}
-.itemRow .nm{flex:1; font-weight:700; font-size:13.5px}
-.itemRow .meta{font-size:10.5px; color:var(--dim); margin-top:2px}
+.itemRow>div{min-width:0}
+.itemRow .nm{flex:1; min-width:0; font-weight:700; font-size:13.5px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.itemRow .meta{word-break:break-all}
+.itemRow .meta{font-size:11px; color:var(--dim); margin-top:2px}
 .chip{display:inline-flex; align-items:center; gap:6px; background:var(--surface2);
-  border:1px solid var(--line); color:var(--muted); border-radius:99px; padding:7px 13px;
-  font-size:12px; font-weight:700; cursor:pointer}
+  border:1px solid var(--line); color:var(--muted); border-radius:99px; padding:12px 15px;
+  font-size:12px; font-weight:700; cursor:pointer; min-height:44px}
 .chip.on{background:var(--gold); border-color:var(--gold); color:#1A1200}
 .jsonChips{display:flex; flex-wrap:wrap; gap:7px; margin-top:10px}
 .tipList{font-size:13px; line-height:1.9; color:var(--muted)}
@@ -332,14 +381,16 @@ h3.dlg{margin:0 0 6px; font-size:16px}
 #chartWrap svg{width:100%; height:auto; display:block}
 #tip{font-size:12px; color:var(--muted); background:var(--surface2); border-radius:var(--r-sm);
   padding:9px 11px; margin-top:10px; display:none; line-height:1.6}
-.legend{display:flex; flex-wrap:wrap; gap:9px; font-size:10.5px; color:var(--dim); margin-top:10px}
+.legend{display:flex; flex-wrap:wrap; gap:9px; font-size:11px; color:var(--dim); margin-top:10px}
 .legend i{display:inline-block; width:12px; height:3px; border-radius:2px; margin-right:4px; vertical-align:middle}
-.evLegend{font-size:10.5px; color:var(--dim); margin-top:8px; line-height:1.7}
+.evLegend{font-size:11px; color:var(--dim); margin-top:8px; line-height:1.7}
 .spark{margin-top:8px}
 .ic{display:inline-flex; align-items:center; justify-content:center; background:var(--surface2);
   font-size:11px; font-weight:800; color:var(--muted); border-radius:8px}
 img.itic{border-radius:8px; object-fit:cover}
-.star{background:none; border:0; font-size:17px; cursor:pointer; color:var(--dim); padding:2px 6px}
+/* 애플 권장 탭 영역 44×44 — 시각 크기는 유지하고 눌리는 범위만 넓힌다 */
+.star{background:none; border:0; font-size:17px; cursor:pointer; color:var(--dim);
+  padding:2px 6px; min-width:44px; min-height:44px}
 .star.on{color:var(--gold)}
 .profBtn{display:flex; align-items:center; justify-content:space-between; width:100%;
   background:var(--surface2); border:0; color:var(--text); border-radius:var(--r-sm);
@@ -369,10 +420,10 @@ img.itic{border-radius:8px; object-fit:cover}
     <div class="hRight">
       <span id="who"></span>
       <span id="saveDot">저장 대기</span>
-      <button id="layoutBtn">화면:자동</button>
+      <button id="layoutBtn" aria-label="화면 모드 전환">화면:자동</button>
     </div>
   </div>
-  <div class="sub" id="subLine">v6.5 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v7.1 · 2026-07-25 — 로딩 중…</div>
 </header>
 <nav>
   <button class="on" data-tab="chart" data-ico="📈">시세</button>
@@ -386,10 +437,11 @@ img.itic{border-radius:8px; object-fit:cover}
 <section id="tab-chart">
   <!-- 선택 종목: 이 화면에서 가장 먼저 답해야 할 질문 = "지금 얼마고, 얼마나 움직였나" -->
   <div class="hero">
-    <div class="heroTop">
+    <div class="heroTop" id="heroJump" style="cursor:pointer" title="관심종목으로 이동">
       <span id="curImg"></span>
       <div class="nm" id="heroName">—</div>
       <div class="tag" id="heroTag"></div>
+      <div class="tag" id="heroFresh" style="color:var(--dim)"></div>
     </div>
     <div class="num" id="heroPrice">—</div>
     <div class="heroSub">
@@ -413,9 +465,9 @@ img.itic{border-radius:8px; object-fit:cover}
       <button data-p="90">3개월</button><button data-p="all">전체</button>
     </div>
     <div class="modeRow">
-      <select id="cmpSel"></select>
-      <button id="krwBtn">₩ 원화</button>
-      <button id="bigBtn">크게</button>
+      <select id="cmpSel" aria-label="비교 종목 선택"></select>
+      <button id="krwBtn" aria-label="원화 환산 모드">₩ 원화</button>
+      <button id="bigBtn" aria-label="차트 크게 보기">크게</button>
     </div>
     <div id="chartWrap"></div>
     <div id="tip"></div>
@@ -424,13 +476,22 @@ img.itic{border-radius:8px; object-fit:cover}
   </div>
 
   <div class="card wlCard">
-    <h2>관심종목</h2>
-    <div id="board"></div>
+    <h2>관심종목 <span id="wlSummary" style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0"></span></h2>
+    <div class="seg" id="wlSort">
+      <button data-s="chg" class="on">등락순</button>
+      <button data-s="name">이름순</button>
+      <button data-s="price">가격순</button>
+    </div>
+    <input id="wlQ" placeholder="종목 검색" aria-label="관심종목 검색">
+    <div id="board" style="margin-top:6px"></div>
   </div>
 
   <div class="card statCard">
     <h2>지표 <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0" id="statPeriodLbl"></span></h2>
     <div class="grid" id="statGrid"></div>
+    <details id="statMore"><summary>지표 더 보기</summary>
+      <div class="grid" id="statGrid2"></div>
+    </details>
   </div>
 
   <div class="card goldCard">
@@ -464,6 +525,12 @@ img.itic{border-radius:8px; object-fit:cover}
       </div>
     </details>
     <div class="hint">골드는 종목이라기보다 <b>환율</b>이에요. 체결 기록이 드물어 차트 점이 띄엄띄엄 찍히는 대신, 상위 30명의 매수·매도 물량으로 방향을 읽습니다. <b>매수 우위 = 골드 수요 강세 = 굴비 시세(원화값) 상승 압력.</b></div>
+  </div>
+
+  <div class="card hide" id="onboard">
+    <h2>처음이라면 — 3단계</h2>
+    <div id="obSteps"></div>
+    <div class="hint">이 카드는 세 단계가 끝나면 자동으로 사라져요.</div>
   </div>
 
   <div class="card">
@@ -542,7 +609,9 @@ img.itic{border-radius:8px; object-fit:cover}
       <button data-s="vol">거래량순</button>
     </div>
     <table id="catTable"></table>
-    <div class="hint">★<b>중요</b>: 게임 API는 <b>인게임 거래소</b> 전용이에요. 아바타·"포장된 ○○"은 <b>넥슨마켓</b>이라는 다른 시장에서만 거래돼 여기 안 나옵니다 — 위의 📋 붙여넣기를 쓰세요.<br>✓=이름 검증됨 · ⚠=추정 이름(빈 응답이면 실제 이름 확인). 인챈트는 API 규칙상 "인챈트 스크롤 (무기한)" 통합 조회 후 종류별로 걸러서 보여줍니다. 스캔 결과는 저장되지 않는 미리보기예요 — ★해야 기록이 쌓입니다.</div>
+    <div id="catMore"></div>
+    <div class="hint"><b>여기는 인게임 거래소 종목만</b> 나와요. 아바타와 "포장된 ○○"은 넥슨마켓이라는 다른 시장이라, 아래 <b>넥슨마켓 목록 붙여넣기</b>를 쓰세요.<br>
+    ✓ = 이름 검증됨 · ⚠ = 추정(빈 응답이면 실제 이름 확인 필요). 인챈트는 <b>"인챈트 스크롤"</b> 한 번 조회로 71종을 나눠 보여줍니다. 스캔 결과는 저장되지 않는 미리보기예요 — ★를 눌러야 기록이 쌓입니다.</div>
   </div>
 
   <div class="card" id="prevCard">
@@ -764,7 +833,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v6.5 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v7.1 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 ⚠ 추정. 인챈트=컨테이너+match 규칙 */
@@ -1496,6 +1565,9 @@ function bindImgFallback(root){
 
 /* ═══════ 탐색(카탈로그) ═══════ */
 let browseCat='전체', browseQ='', browseSort='name', prevSel=null;
+/* 힉스의 법칙: 선택지가 많을수록 결정이 느려진다. 한 번에 24개만 보여주고
+   더 필요할 때만 늘린다(검색·카테고리로 좁히는 걸 먼저 유도). */
+let browseLimit=24;
 const scanRes={};       // catKey -> {p,chg,vol,days,err} (메모리 전용)
 const prevEntries={};   // catKey -> entries (팔로우 시 시드)
 function isFollowed(c){ return S.items.some(x=>x.apiName===c.apiName&&(x.match||'')===(c.match||'')); }
@@ -1565,7 +1637,7 @@ function renderBrowse(){
   cats.forEach(cn=>{
     const b=document.createElement('button');
     b.textContent=cn; b.className=browseCat===cn?'on':'';
-    b.onclick=()=>{ browseCat=cn; renderBrowse(); };
+    b.onclick=()=>{ browseCat=cn; browseLimit=24; renderBrowse(); };
     chips.appendChild(b);
   });
   document.querySelectorAll('#sortSeg button').forEach(b=>
@@ -1577,7 +1649,11 @@ function renderBrowse(){
   else if(browseSort==='vol') list=[...list].sort((a,b)=>val(b,'vol')-val(a,'vol'));
   else list=[...list].sort((a,b)=>a.name<b.name?-1:1);
   const t=document.getElementById('catTable');
-  let html='<tr><th></th><th>종목</th><th>최신가</th><th>등락</th><th>거래량</th></tr>';
+  if(!list.length){
+    t.innerHTML='<tr><td class="empty">조건에 맞는 종목이 없어요.<br>검색어를 지우거나 다른 카테고리를 눌러보세요.</td></tr>';
+    return;
+  }
+  let html='<tr><th></th><th>종목</th><th class="num">최신가</th><th class="num">등락</th><th class="num">거래량</th></tr>';
   list.forEach(c=>{
     const k=catKey(c), r=scanRes[k], fol=isFollowed(c);
     html+='<tr data-k="'+k+'">'
@@ -1589,6 +1665,14 @@ function renderBrowse(){
       +'<td class="num">'+(r&&!r.err&&r.vol?r.vol.toLocaleString():'—')+'</td></tr>';
   });
   t.innerHTML=html;
+  const moreBox=document.getElementById('catMore');
+  if(moreBox){
+    if(list.length>show.length){
+      moreBox.innerHTML='<button class="btn sm ghost" id="btnCatMore">'
+        +(list.length-show.length)+'개 더 보기</button>';
+      document.getElementById('btnCatMore').onclick=()=>{ browseLimit+=24; renderBrowse(); };
+    } else moreBox.innerHTML='';
+  }
   t.querySelectorAll('.star').forEach(b=>b.onclick=ev=>{
     ev.stopPropagation();
     toggleFollow(CATALOG.find(c=>catKey(c)===b.dataset.f));
@@ -1773,8 +1857,8 @@ function renderNxm(){
   let list=q? nxmRows.filter(r=>r.name.includes(q)):nxmRows;
   if(nxmMovesOnly) list=list.filter(r=>{ const p=nxmPrev(r.name); return p!=null&&Math.abs(pct(r.price,p))>=1; });
   if(!nxmRows.length){ t.innerHTML=''; return; }
-  const show=list.slice(0,60);
-  let html='<tr><th></th><th>아이템</th><th>최저가</th><th>등락</th><th>매물</th></tr>';
+  const show=list.slice(0,browseLimit);
+  let html='<tr><th></th><th>아이템</th><th class="num">최저가</th><th class="num">등락</th><th class="num">매물</th></tr>';
   show.forEach((r,i)=>{
     const fol=S.items.some(x=>x.name===r.name);
     const pv=nxmPrev(r.name);
@@ -1860,6 +1944,31 @@ function toggleFollow(c){
 }
 
 /* ═══════ 렌더: 헤더/배너 ═══════ */
+/* 테슬러의 법칙: 복잡성 자체는 못 줄여도, 처음 쓰는 사람이 헤매는 시간은 줄일 수 있다.
+   실제 상태를 보고 남은 단계만 보여준다(체크리스트가 아니라 진행 안내). */
+function renderOnboard(){
+  const box=document.getElementById('onboard'); if(!box) return;
+  const hasApi=S.items.some(it=>it.entries.some(e=>e.src!=='man'));
+  const hasFollow=S.items.length>0;
+  const hasBackup=!!S.settings.lastBackup;
+  if(hasApi&&hasFollow&&hasBackup){ box.classList.add('hide'); return; }
+  box.classList.remove('hide');
+  const step=(done,title,desc,btn,fn)=>
+    '<div class="itemRow"><div style="flex:1"><div class="nm">'
+    +(done?'<span class="okC">✓</span> ':'<span style="color:var(--dim)">○</span> ')+title+'</div>'
+    +'<div class="meta">'+desc+'</div></div>'
+    +(done||!btn?'':'<button class="del" data-ob="'+fn+'">'+btn+'</button>')+'</div>';
+  document.getElementById('obSteps').innerHTML=
+    step(hasFollow,'관심종목 담기','탐색 탭에서 ★를 눌러 추적할 종목을 고르세요','탐색','browse')
+   +step(hasApi,'시세 받아오기','새로고침을 누르면 최근 1주치를 한 번에 가져옵니다','새로고침','refresh')
+   +step(hasBackup,'백업 한 번','기록이 쌓이면 자산이에요. 설정에서 내보내 보관하세요','설정','data');
+  box.querySelectorAll('[data-ob]').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.ob;
+    if(a==='refresh'){ refreshAll(); return; }
+    switchTab(a);
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+}
 function renderHeaderMeta(){
   document.getElementById('subLine').textContent=BUILD+' · '+fmtTimeAgo(S.settings.lastFetch);
   const b=document.getElementById('bkBanner');
@@ -1886,24 +1995,48 @@ function sparkPath(ps,W,H){
     d+=(d?' L':'M')+x.toFixed(1)+' '+y.toFixed(1); });
   return d;
 }
+let wlSort='chg', wlQ='';
 function renderBoard(){
   const box=document.getElementById('board');
+  // 상단 요약: 오늘 몇 개가 오르고 내렸는지 한 줄로
+  const stats=S.items.map(it=>{
+    const es=sortedEntries(it);
+    const last=es.length?es[es.length-1]:null, prev=es.length>1?es[es.length-2]:null;
+    return {it, last, prev, chg:(prev&&last)?pct(last.p,prev.p):null, es};
+  });
+  const ups=stats.filter(x=>x.chg!=null&&x.chg>0.5).length;
+  const dns=stats.filter(x=>x.chg!=null&&x.chg<-0.5).length;
+  const sumEl=document.getElementById('wlSummary');
+  if(sumEl) sumEl.innerHTML= S.items.length
+    ? '<span class="upC">▲'+ups+'</span> <span class="dnC">▼'+dns+'</span> <span style="color:var(--dim)">/ '+S.items.length+'</span>'
+    : '';
+  document.querySelectorAll('#wlSort button').forEach(b=>b.classList.toggle('on', b.dataset.s===wlSort));
   if(!S.items.length){
     box.innerHTML='<div class="empty">관심종목이 없어요.<br>탐색 탭에서 ★를 눌러 추가하세요.</div>'
       +'<div class="wl add" data-id="__add">＋ 종목 찾으러 가기</div>';
   }else{
+    let rows=stats.filter(x=>!wlQ||x.it.name.includes(wlQ));
+    if(wlSort==='chg') rows.sort((a,b)=>(b.chg==null?-1e9:b.chg)-(a.chg==null?-1e9:a.chg));
+    else if(wlSort==='price') rows.sort((a,b)=>(b.last?b.last.p:-1)-(a.last?a.last.p:-1));
+    else rows.sort((a,b)=>a.it.name<b.it.name?-1:1);
+    if(!rows.length){
+      box.innerHTML='<div class="empty">"'+wlQ+'"에 맞는 종목이 없어요.</div>';
+      return;
+    }
+    /* 폰 레스토프 효과: 비슷한 행이 늘어서면 아무것도 기억에 안 남는다.
+       오늘 가장 크게 움직인 하나만 확실히 다르게 표시한다. */
+    let topMover=null, topAbs=1.5;
+    rows.forEach(x=>{ if(x.chg!=null&&Math.abs(x.chg)>topAbs){ topAbs=Math.abs(x.chg); topMover=x.it.id; } });
     let html='';
-    S.items.forEach(it=>{
-      const es=sortedEntries(it);
-      const last=es.length?es[es.length-1]:null;
-      const prev=es.length>1?es[es.length-2]:null;
-      const chg= (prev&&last)? pct(last.p,prev.p):null;
+    rows.forEach(({it,last,chg,es})=>{
       const ps=es.slice(-14).map(e=>e.p);
       const col= chg==null?'var(--dim)':(chg>0.5?'var(--up)':chg<-0.5?'var(--dn)':'var(--dim)');
       const d=sparkPath(ps,46,20);
-      html+='<div class="wl'+(it.id===cur?' sel':'')+'" data-id="'+it.id+'">'
+      const isTop= it.id===topMover;
+      html+='<div class="wl'+(it.id===cur?' sel':'')+(isTop?' mover':'')+'" data-id="'+it.id+'">'
         +'<span class="ico">'+iconOf(it,30)+'</span>'
-        +'<div class="mid"><div class="nm">'+it.name+'</div>'
+        +'<div class="mid"><div class="nm">'+it.name
+        +(isTop?' <span class="badge '+(chg>0?'bNo':'bBlue')+'">오늘 최대</span>':'')+'</div>'
         +'<div class="meta">'+(it.market?'넥슨마켓 · 직접 기록':(it.match?'인챈트 · '+it.match:'거래소 자동'))+'</div></div>'
         +(d?'<svg class="spark" viewBox="0 0 46 20" width="46" height="20"><path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.6"/></svg>':'<span class="spark"></span>')
         +'<div class="rt"><div class="px num">'+(last?fmt(it,last.p):'—')+'</div>'
@@ -1996,19 +2129,25 @@ function renderChart(){
   const Y=v=>padT+(1-(v-pMin)/(pMax-pMin))*priceH;
   const xi=i=>X(new Date(es[i].d).getTime());
 
+  /* ★viewBox는 컨테이너 폭에 맞춰 축소된다. 글씨를 고정값으로 두면 모바일에서
+     실제 5~6px로 렌더링돼 읽을 수 없다. 화면에서 최소 11px로 보이도록 역산한다. */
+  const cw = wrap.clientWidth || (wide?1100:350);
+  const k  = W / cw;                       // 축소 배율
+  const FS = Math.max(9, Math.round(11*k));  // 축 라벨
+  const FS2= Math.max(9, Math.round(10*k));  // 이벤트 번호 등 보조
   let g='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="touch-action:pan-y">';
   // 가로 눈금 5줄 + 우측 가격 라벨
   for(let i=0;i<5;i++){
     const v=pMin+(pMax-pMin)*i/4, y=Y(v);
     g+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="#26324A" stroke-width="'+(i===0||i===4?1:0.6)+'"/>'
-      +'<text x="'+(W-padR+6)+'" y="'+(y+3.5).toFixed(1)+'" fill="#5F6C85" font-size="11">'+fmtAxis(v)+'</text>';
+      +'<text x="'+(W-padR+6)+'" y="'+(y+3.5).toFixed(1)+'" fill="#7A87A2" font-size="'+FS+'">'+fmtAxis(v)+'</text>';
   }
   // 이벤트 세로선(가격영역에만)
   const evs=S.events.filter(e=>{const t=new Date(e.d).getTime();return t>=t0&&t<=t1;}).sort((a,b)=>a.d<b.d?-1:1);
   evs.forEach((e,i)=>{ const x=X(new Date(e.d).getTime());
     g+='<line x1="'+x.toFixed(1)+'" y1="'+padT+'" x2="'+x.toFixed(1)+'" y2="'+(padT+priceH)+'" stroke="#3A4560" stroke-dasharray="3 4"/>'
-      +'<circle cx="'+x.toFixed(1)+'" cy="'+(padT+7)+'" r="7.5" fill="#26324A"/>'
-      +'<text x="'+x.toFixed(1)+'" y="'+(padT+10.5)+'" fill="#8A97AE" font-size="9" text-anchor="middle">'+(i+1)+'</text>'; });
+      +'<circle cx="'+x.toFixed(1)+'" cy="'+(padT+7)+'" r="'+Math.max(7.5,FS2*0.8)+'" fill="#26324A"/>'
+      +'<text x="'+x.toFixed(1)+'" y="'+(padT+10.5)+'" fill="#8A97AE" font-size="'+FS2+'" text-anchor="middle">'+(i+1)+'</text>'; });
 
   if(mode!=='cmp'){
     // 볼린저
@@ -2028,10 +2167,10 @@ function renderChart(){
     // 목표·알림선
     if(mode==='raw'&&it.target){ const y=Y(it.target);
       g+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#FF5C5C" stroke-width="1.1" stroke-dasharray="6 5" opacity=".8"/>'
-        +'<text x="'+(W-padR+6)+'" y="'+(y+3.5)+'" fill="#FF5C5C" font-size="10">목표</text>'; }
+        +'<text x="'+(W-padR+6)+'" y="'+(y+3.5)+'" fill="#FF5C5C" font-size="'+FS2+'">목표</text>'; }
     if(mode==='raw'&&it.alertHigh){ const y=Y(it.alertHigh);
       g+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#3ECF8E" stroke-width="1.1" stroke-dasharray="6 5" opacity=".8"/>'
-        +'<text x="'+(W-padR+6)+'" y="'+(y+3.5)+'" fill="#3ECF8E" font-size="10">알림</text>'; }
+        +'<text x="'+(W-padR+6)+'" y="'+(y+3.5)+'" fill="#3ECF8E" font-size="'+FS2+'">알림</text>'; }
     // ★일별 고저 막대 — 그날 안에서 얼마나 벌어졌는지가 보인다
     if(loArr){
       es.forEach((e,i)=>{ if(loArr[i]==null||hiArr[i]==null||hiArr[i]<=loArr[i]) return;
@@ -2072,14 +2211,14 @@ function renderChart(){
   // 거래 활성 밴드
   const sup=es.filter(e=>e.s!=null&&e.s!=='');
   g+='<line x1="'+padL+'" y1="'+(volTop+volH)+'" x2="'+(W-padR)+'" y2="'+(volTop+volH)+'" stroke="#26324A"/>';
-  g+='<text x="'+(W-padR+6)+'" y="'+(volTop+12)+'" fill="#5F6C85" font-size="10">활성</text>';
+  g+='<text x="'+(W-padR+6)+'" y="'+(volTop+12)+'" fill="#7A87A2" font-size="'+FS2+'">활성</text>';
   if(sup.length){
     const sMax=Math.max(...sup.map(e=>+e.s),it.targetSupply||0,1);
     const bw=Math.max(3,Math.min(wide?20:14,(W-padL-padR)/Math.max(es.length,1)*0.55));
     es.forEach((e,i)=>{ if(e.s==null||e.s==='') return;
       const h=Math.max(2,(+e.s)/sMax*(volH-6));
       g+='<rect x="'+(xi(i)-bw/2).toFixed(1)+'" y="'+(volTop+volH-h).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+'" rx="2" fill="#3A4A6B"/>'; });
-    g+='<text x="'+(W-padR+6)+'" y="'+(volTop+volH)+'" fill="#5F6C85" font-size="10">'+sMax+'</text>';
+    g+='<text x="'+(W-padR+6)+'" y="'+(volTop+volH)+'" fill="#7A87A2" font-size="'+FS2+'">'+sMax+'</text>';
   }
   // 날짜축 라벨 (양끝 + 중간)
   const nLab=Math.min(wide?8:4,es.length);
@@ -2087,7 +2226,7 @@ function renderChart(){
     const idx= nLab===1?0:Math.round(i*(es.length-1)/(nLab-1));
     const x=xi(idx);
     const anchor= i===0?'start':(i===nLab-1?'end':'middle');
-    g+='<text x="'+Math.max(padL,Math.min(W-padR,x)).toFixed(1)+'" y="'+(H-6)+'" fill="#5F6C85" font-size="10.5" text-anchor="'+anchor+'">'+es[idx].d.slice(5).replace('-','/')+'</text>';
+    g+='<text x="'+Math.max(padL,Math.min(W-padR,x)).toFixed(1)+'" y="'+(H-6)+'" fill="#7A87A2" font-size="'+FS+'" text-anchor="'+anchor+'">'+es[idx].d.slice(5).replace('-','/')+'</text>';
   }
   // 십자선
   if(selIdx!=null&&es[selIdx]){
@@ -2157,6 +2296,15 @@ function renderStats(){
   grid.innerHTML=''; sig.innerHTML='';
   nameEl.textContent= it? it.name:'종목 없음';
   tagEl.textContent= it? (it.market?'넥슨마켓':'거래소'):'';
+  const fresh=document.getElementById('heroFresh');
+  if(fresh){
+    const es0= it? sortedEntries(it):[];
+    if(es0.length){
+      const days=Math.round((new Date(today()).getTime()-new Date(es0[es0.length-1].d).getTime())/864e5);
+      fresh.textContent= days<=0?'오늘 기준': days===1?'어제 기준': days+'일 전 기준';
+      fresh.style.color= days>=3? 'var(--up)':'var(--dim)';
+    } else fresh.textContent='';
+  }
   rangeEl.classList.add('hide');
   if(!it){ priceEl.textContent='—'; krwEl.textContent=''; chgEl.textContent='';
     sig.innerHTML='<div>탐색 탭에서 종목을 ★ 해보세요.</div>'; return; }
@@ -2201,8 +2349,16 @@ function renderStats(){
   const lastS=[...es].reverse().find(e=>e.s!=null&&e.s!=='');
   if(it.targetSupply||lastS) cells.push(['활성 / 매물','<span class="num">'+(lastS?lastS.s:'—')+(it.targetSupply?' / '+it.targetSupply+'+':'')+'</span>']);
   cells.push(['기록 수','<span class="num">'+es.length+'</span> <span style="color:var(--dim);font-size:11px">전체 '+it.entries.length+'</span>']);
-  cells.forEach(([k2,v])=>{ const c=document.createElement('div'); c.className='cell';
-    c.innerHTML='<div class="k">'+k2+'</div><div class="v">'+v+'</div>'; grid.appendChild(c); });
+  /* 밀러의 법칙: 한 번에 훑을 수 있는 건 대여섯 개가 한계.
+     자주 보는 4개만 펼쳐두고 나머지는 접는다. */
+  const grid2=document.getElementById('statGrid2');
+  grid2.innerHTML='';
+  const mk=(k2,v)=>{ const c=document.createElement('div'); c.className='cell';
+    c.innerHTML='<div class="k">'+k2+'</div><div class="v">'+v+'</div>'; return c; };
+  cells.slice(0,4).forEach(([k2,v])=>grid.appendChild(mk(k2,v)));
+  cells.slice(4).forEach(([k2,v])=>grid2.appendChild(mk(k2,v)));
+  const more=document.getElementById('statMore');
+  if(more) more.style.display= cells.length>4? '':'none';
 
   // 신호 — 등급별 색으로 구분(빨강=과열/경고, 파랑=과매도, 초록=기회)
   const sigs=[];
@@ -2240,7 +2396,7 @@ function renderEventAnalysis(){
   if(!it){ t.innerHTML=''; return; }
   const es=sortedEntries(it);
   if(es.length<2||!S.events.length){ t.innerHTML='<tr><td class="hint">데이터·이벤트가 더 쌓이면 표시됩니다.</td></tr>'; return; }
-  let html='<tr><th>이벤트</th><th>D-'+CONFIG.EV_WIN+'→당일</th><th>당일→D+'+CONFIG.EV_WIN+'</th></tr>';
+  let html='<tr><th>이벤트</th><th class="num">D-'+CONFIG.EV_WIN+'→당일</th><th class="num">당일→D+'+CONFIG.EV_WIN+'</th></tr>';
   let rows=0;
   [...S.events].sort((a,b)=>a.d<b.d?-1:1).forEach(e=>{
     const evMs=new Date(e.d).getTime();
@@ -2263,7 +2419,7 @@ function renderHist(){
   if(!it){t.innerHTML='';return;}
   const es=sortedEntries(it).slice().reverse();
   if(!es.length){ t.innerHTML='<tr><td class="hint">기록 없음</td></tr>'; return; }
-  let html='<tr><th>날짜</th><th>가격</th><th>활성</th><th>출처</th><th></th></tr>';
+  let html='<tr><th>날짜</th><th class="num">가격</th><th class="num">활성</th><th>출처</th><th></th></tr>';
   es.forEach(e=>{
     html+='<tr><td class="num">'+e.d.slice(2)+'</td>'
       +'<td class="num"><b>'+fmt(it,e.p)+'</b>'+(e.m?'<div class="memo">'+e.m+'</div>':'')+'</td>'
@@ -2300,7 +2456,7 @@ function doTrade(it, side, qty, price, tag){
     p.avg=Math.round((p.avg*p.qty+cost)/(p.qty+qty)); p.qty+=qty;
     S.sim.pos[it.id]=p;
     const l={d:new Date().toISOString().slice(0,16).replace('T',' '), side:'buy', name:it.name, qty, price, fee:0, pl:0, tag};
-    S.sim.log.push(l); return l;
+    S.sim.log.push(l); trimLog(); return l;
   }
   const p=S.sim.pos[it.id];
   if(!p||p.qty<qty) return {err:'보유 수량 부족'};
@@ -2309,8 +2465,10 @@ function doTrade(it, side, qty, price, tag){
   S.sim.cash+=net; S.sim.realized+=pl;
   p.qty-=qty; if(p.qty===0) delete S.sim.pos[it.id];
   const l={d:new Date().toISOString().slice(0,16).replace('T',' '), side:'sell', name:it.name, qty, price, fee, pl, tag};
-  S.sim.log.push(l); return l;
+  S.sim.log.push(l); trimLog(); return l;
 }
+/* 일지는 최근 300건만 보관 — 저장 용량이 무한정 늘지 않게 */
+function trimLog(){ if(S.sim.log.length>300) S.sim.log=S.sim.log.slice(-300); }
 function checkOrders(){
   const msgs=[]; const remain=[];
   for(const o of S.sim.orders){
@@ -2375,7 +2533,7 @@ function renderSim(){
   const ot=document.getElementById('ordTable');
   if(!S.sim.orders.length) ot.innerHTML='<tr><td class="hint">대기 중인 예약 없음</td></tr>';
   else{
-    let html='<tr><th>종목</th><th>조건</th><th>수량</th><th></th></tr>';
+    let html='<tr><th>종목</th><th class="num">조건</th><th class="num">수량</th><th></th></tr>';
     S.sim.orders.forEach(o=>{
       const i2=S.items.find(x=>x.id===o.itemId);
       html+='<tr><td>'+(i2?i2.name:'?')+'</td>'
@@ -2394,7 +2552,7 @@ function renderSim(){
   const ids=Object.keys(S.sim.pos);
   if(!ids.length) pt.innerHTML='<tr><td class="hint">보유 없음 — 시세 탭에서 종목 고르고 매수해보세요.</td></tr>';
   else{
-    let html='<tr><th>종목</th><th>수량</th><th>평단</th><th>평가손익</th><th></th></tr>';
+    let html='<tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">평가손익</th><th></th></tr>';
     ids.forEach(id=>{ const p=S.sim.pos[id]; const i2=S.items.find(x=>x.id===id);
       const nm=i2?i2.name:'(삭제됨)'; const c=i2?latestPrice(i2):null;
       const pl= c!=null? (c-p.avg)*p.qty:null; const plp= c!=null? pct(c,p.avg):null;
@@ -2477,15 +2635,27 @@ function applyLayout(){
 function renderAll(){
   renderHeaderMeta(); renderBoard(); renderChart(); renderStats();
   renderEventAnalysis(); renderHist(); renderSim(); renderItemList(); renderEvents();
-  renderGold(); renderBrowse();
+  renderGold(); renderBrowse(); renderOnboard();
   document.getElementById('apiKey').value=S.settings.apiKey||'';
   document.getElementById('feeRate').value=S.settings.fee;
   document.getElementById('autoSel').value=S.settings.autoRefresh?'1':'0';
   document.getElementById('remoteUrl').value=S.settings.remoteUrl||'';
   document.getElementById('simInit').value=fmtG(S.sim.initial);
 }
+/* 복사: 최신 API 우선, 실패 시 구식 execCommand로 폴백(둘 다 실패해도 텍스트는 남음) */
+async function copyText(el){
+  const t=el.value;
+  try{ if(navigator.clipboard&&window.isSecureContext){ await navigator.clipboard.writeText(t); return true; } }catch(e){}
+  try{ el.focus(); el.select(); return document.execCommand('copy'); }catch(e){ return false; }
+}
 function confirmDlg(title,body,onYes){
   const d=document.getElementById('dlgConfirm');
+  /* 구형 브라우저(iOS 15.4 미만 등)는 <dialog>를 지원하지 않는다.
+     그대로 두면 삭제·복원 확인창이 아예 안 뜨고 동작이 조용히 무시된다. */
+  if(!d||typeof d.showModal!=='function'){
+    if(window.confirm(title+'\n\n'+body)) onYes();
+    return;
+  }
   document.getElementById('dlgTitle').textContent=title;
   document.getElementById('dlgBody').textContent=body;
   document.getElementById('dlgYes').onclick=()=>{ d.close(); onYes(); };
@@ -2509,7 +2679,15 @@ document.getElementById('btnRefresh').onclick=refreshAll;
 document.getElementById('btnDeep').onclick=()=>{ FORCE_DEEP=true; refreshAll(); };
 document.getElementById('btnScan').onclick=scanAll;
 document.getElementById('btnGold').onclick=fetchGoldTop;
-document.getElementById('catSearch').oninput=e=>{ browseQ=e.target.value.trim(); renderBrowse(); };
+/* 피츠의 법칙: 자주 쓰는 '종목 전환'까지의 거리를 줄인다 */
+document.getElementById('heroJump').onclick=()=>{
+  const c=document.querySelector('.wlCard');
+  if(c) c.scrollIntoView({behavior:'smooth', block:'start'});
+};
+document.querySelectorAll('#wlSort button').forEach(b=>
+  b.onclick=()=>{ wlSort=b.dataset.s; renderBoard(); });
+document.getElementById('wlQ').oninput=e=>{ wlQ=e.target.value.trim(); renderBoard(); };
+document.getElementById('catSearch').oninput=e=>{ browseQ=e.target.value.trim(); browseLimit=24; renderBrowse(); };
 document.querySelectorAll('#sortSeg button').forEach(b=>
   b.onclick=()=>{ browseSort=b.dataset.s; renderBrowse(); });
 document.getElementById('btnPrevFetch').onclick=previewFetch;
@@ -2641,8 +2819,8 @@ document.getElementById('cvGold').oninput=e=>{
 };
 document.getElementById('btnExport').onclick=()=>{
   const box=document.getElementById('ioBox');
-  box.value=JSON.stringify(S); box.focus(); box.select();
-  try{ document.execCommand('copy'); }catch(e){}
+  box.value=JSON.stringify(S);
+  copyText(box);
   S.settings.lastBackup=Date.now(); saveData(); renderHeaderMeta();
 };
 document.getElementById('btnCsv').onclick=()=>{
@@ -2652,8 +2830,8 @@ document.getElementById('btnCsv').onclick=()=>{
       +(e.s==null?'':e.s)+','+(e.src||'')+',"'+String(e.m||'').replace(/"/g,'""')+'"\n';
   }));
   const box=document.getElementById('ioBox');
-  box.value=csv; box.focus(); box.select();
-  try{ document.execCommand('copy'); }catch(e){}
+  box.value=csv;
+  copyText(box);
   try{
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
@@ -2668,8 +2846,8 @@ document.getElementById('btnGenItems').onclick=()=>{
     return o;
   })};
   const box=document.getElementById('ioBox');
-  box.value=JSON.stringify(out,null,1); box.focus(); box.select();
-  try{ document.execCommand('copy'); }catch(e){}
+  box.value=JSON.stringify(out,null,1);
+  copyText(box);
   alert('자동수집 저장소의 items.json에 붙여넣으세요. (관심종목 '+out.items.length+'개)');
 };
 document.getElementById('btnImport').onclick=()=>{
