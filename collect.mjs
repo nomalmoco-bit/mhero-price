@@ -372,9 +372,11 @@ async function collectGoldFlow() {
   } catch (e) { console.log('✕ 수급 조회 실패:', e.message); return; }
   if (!buy && !sell) { console.log('· 수급 데이터 없음'); return; }
 
+  /* ★이 파일은 동기 fs API로 통일돼 있다(readFileSync/writeFileSync/mkdirSync).
+     promises API(await fs.readFile 등)를 섞으면 런타임에서 터진다 — 실제로 겪음. */
   const file = 'data/gold-flow.json';
   let db = { updated: '', flow: [] };
-  try { db = JSON.parse(await fs.readFile(file, 'utf8')); } catch (e) {}
+  if (fs.existsSync(file)) { try { db = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {} }
   if (!Array.isArray(db.flow)) db.flow = [];
   const d = new Date().toISOString().slice(0, 10);
   const rec = { d, buy, sell };
@@ -382,8 +384,8 @@ async function collectGoldFlow() {
   if (i > -1) db.flow[i] = rec; else db.flow.push(rec);
   if (db.flow.length > 400) db.flow = db.flow.slice(-400);
   db.updated = new Date().toISOString();
-  await fs.mkdir('data', { recursive: true });
-  await fs.writeFile(file, JSON.stringify(db, null, 1));
+  fs.mkdirSync('data', { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(db, null, 1));
   const share = buy + sell ? (buy / (buy + sell) * 100) : 50;
   console.log(`저장: 매수 ${(buy/1e8).toFixed(1)}억 · 매도 ${(sell/1e8).toFixed(1)}억 · 매수비중 ${share.toFixed(1)}%`);
   console.log('────────────────\n');
