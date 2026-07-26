@@ -40,6 +40,34 @@
      (인챈트 16종 = 호출 1회). 스캔 결과는 메모리 전용(저장 안 함).
   5) 레이아웃: settings.layout 'auto|mobile|desktop' → body.L-* 클래스.
      960px 이상 or 강제 desktop이면 section에 CSS 2단 칼럼(multicol).
+■ 성능이 곧 시스템 품질이다 (Usman, Rohmadi, Doğan, Ru-Zhue & Aujirapongpan,
+  "Analyzing Cryptocurrency Exchange Platform Performance", JRFM 19(4), 2026):
+  Binance 사용자 389명 대상 PLS-SEM에서 시스템 품질 → 사용(β=0.753)과
+  사용 → 순효익(β=0.781)만 강하게 유의했고, 정보 품질·서비스 품질·만족 →
+  순효익은 유의하지 않았다. 결론은 "미적 개선보다 작업 효율·실행 정확도·
+  성능 최적화를 우선하라"는 것. 그래서 다음 규칙을 둔다:
+  · 렌더 경로에서 배열 정렬·전체 필터를 반복하지 말 것(sortedEntries/
+    entriesInPeriod는 DATA_VER 캐시를 경유한다. 직접 수정 시 bumpData() 필수).
+  · 날짜×종목 이중 루프에서 매번 전체 기록을 훑지 말 것(weightedIndex는 포인터 이동).
+  · 지표는 지점마다 재계산하지 말고 누적합 시리즈(maSeries/bollSeries)를 쓸 것.
+  · DOM/SVG 요소 수는 데이터 양에 비례해 늘리지 말 것(터치영역·목록 행 상한).
+  · 기능을 추가하면 perf.mjs로 재측정할 것. 폰은 이 측정치의 3~5배로 보면 된다.
+■ 이벤트 유입 경로는 둘이다: fetchNotices()가 넥슨 공지 API를 직접 호출하고,
+  mergeEvents()가 자동수집 저장소의 events.json을 병합한다. 예전에는 후자만
+  있어서 수집기를 설치하지 않으면 이벤트 달력이 영원히 비었다. 둘 다 유지할 것
+  (앱을 안 여는 날은 수집기가, 수집기가 없으면 앱이 채운다).
+■ 두드러짐은 중요도와 정렬되어야 한다 (Bétrancourt & Boucheix, "Animation and Motion
+  in UX Design", in Interaction Techniques and Technologies in HCI, Taylor & Francis 2024;
+  Lowe 1999/2004의 날씨지도 연구): 사람은 '주제적으로 중요한 것'이 아니라 '지각적으로
+  두드러진 것'을 먼저 뽑아낸다. 시각적 무게를 데이터의 중요도에 맞출 것.
+  · 스파크라인 진폭을 목록 내 상대 변동성에 비례시킨다. 각자 min~max로 정규화하면
+    거의 안 움직인 종목이 폭등 종목과 똑같이 요동쳐 보인다(sparkSVG의 amp).
+  · 이벤트 표식은 맥락이므로 채운 원이 아니라 가는 테두리로 둔다.
+■ 동작 제어(User Control 원칙): OS의 prefers-reduced-motion만 믿지 말고 앱에서도
+  끌 수 있어야 한다. CSS 전환과 JS의 부드러운 스크롤을 함께 꺼야 실제로 줄어든다
+  (reducedMotion()/scrollBehavior()를 반드시 경유할 것).
+■ 참고: 같은 챕터가 지적하듯 "사용자는 애니메이션을 선호하지만 선호가 성능과
+  일치하지는 않는다". 이 앱은 관찰 도구이므로 장식적 모션은 넣지 않는다.
 ■ 지표 정의(METRIC_DOC)는 지표 옆에서 바로 열린다. 별도 문서로 빼면 아무도 안 읽는다.
   특히 '거래된 시간'은 거래량이 아니라는 점처럼, API 특성에서 나온 비직관적 지표가
   오독되면 판단이 틀어진다. 새 지표를 추가하면 정의·계산식·주의를 함께 등록할 것.
@@ -233,6 +261,11 @@ header h1 b{color:var(--gold); font-weight:700}
 .hRight{display:flex; align-items:center; gap:10px}
 #saveDot,#who{font-size:11px; color:var(--dim)}
 #saveDot.on{color:var(--ok)}
+#motionBtn{background:none; border:0; color:var(--dim); padding:6px 2px; font-size:11px;
+  cursor:pointer; position:relative; text-decoration:underline; text-underline-offset:3px;
+  text-decoration-color:var(--rule)}
+#motionBtn::after{content:''; position:absolute; inset:-12px}
+body.M-reduce *{transition:none !important; animation:none !important}
 #layoutBtn{background:none; border:0; color:var(--dim); padding:6px 2px;
   font-size:11px; cursor:pointer; position:relative; text-decoration:underline;
   text-underline-offset:3px; text-decoration-color:var(--rule)}
@@ -402,10 +435,15 @@ img.itic{border-radius:4px; object-fit:cover}
   padding:15px 0; font-size:15px; font-weight:600; cursor:pointer; min-height:48px}
 .profBtn small{color:var(--dim); font-weight:400}
 .empty{color:var(--dim); font-size:12.5px; padding:26px 0; line-height:1.8}
+/* 하단 탭바를 확실히 피해서 띄운다. 모바일은 탭바 위 중앙,
+   넓은 화면에서는 가운데 알약형 탭바와 겹치지 않도록 오른쪽 아래. */
 #toast{position:fixed; left:50%; transform:translateX(-50%);
-  bottom:calc(var(--nav-h) + 16px); z-index:60; display:flex; align-items:center; gap:16px;
+  bottom:calc(var(--nav-h) + 18px + env(safe-area-inset-bottom)); z-index:60;
+  display:flex; align-items:center; gap:16px;
   background:var(--panel); border:1px solid var(--rule); border-radius:var(--r);
-  padding:12px 14px 12px 18px; font-size:12.5px; max-width:min(92vw,460px)}
+  padding:12px 14px 12px 18px; font-size:12.5px;
+  width:max-content; max-width:min(92vw,460px);
+  box-shadow:0 6px 20px rgba(0,0,0,.45)}
 #toast.docQ{display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
   border:1px solid var(--rule); border-radius:50%; font-size:9px; color:var(--dim);
   vertical-align:middle; margin-left:2px}
@@ -444,6 +482,8 @@ img.itic{border-radius:4px; object-fit:cover}
     max-height:calc(100vh - 150px); overflow:auto }
   nav{left:50%; transform:translateX(-50%); width:min(520px,88vw); bottom:18px;
     border:1px solid var(--rule); border-radius:var(--r); height:52px}
+  /* 넓은 화면: 가운데 탭바와 겹치지 않게 오른쪽 아래로 */
+  #toast{left:auto; right:24px; transform:none; bottom:24px; max-width:min(60vw,420px)}
 }
 body.L-mobile main{max-width:640px !important}
 body.L-mobile section:not(.hide){display:block !important}
@@ -474,9 +514,10 @@ body.L-mobile section.hide{display:none !important}
       <span id="who"></span>
       <span id="saveDot">저장 대기</span>
       <button id="layoutBtn" aria-label="화면 모드 전환">화면:자동</button>
+      <button id="motionBtn" aria-label="동작 줄이기 전환">동작: 자동</button>
     </div>
   </div>
-  <div class="sub" id="subLine">v8.6 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v8.9 · 2026-07-25 — 로딩 중…</div>
 </header>
 <nav>
   <button class="on" data-tab="chart">시세</button>
@@ -948,7 +989,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v8.6 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v8.9 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 추정. 인챈트=컨테이너+match 규칙 */
@@ -992,6 +1033,7 @@ async function rawSave(k,v){
 let saveTimer=null;
 function saveData(){
   if(!S) return;
+  bumpData();   // 저장 시점 = 데이터가 바뀐 시점 → 캐시 무효화
   const dot=document.getElementById('saveDot');
   clearTimeout(saveTimer);
   saveTimer=setTimeout(async ()=>{
@@ -1127,7 +1169,7 @@ function apiNameGuess(name){
 function seed(){
   return {
     settings:{fee:5, apiKey:'', period:'all', lastFetch:0, lastBackup:0,
-      autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar'},
+      autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar', motion:'auto'},
     events:[
       {d:'2026-07-16', t:'루미엘·슬링샷 키트 출시'},
       {d:'2026-08-03', t:'휴가 시작'},
@@ -1178,7 +1220,7 @@ function migrateV1(old){
 }
 function ensureDefaults(s){
   s.settings=Object.assign({fee:5, apiKey:'', period:'all', lastFetch:0, lastBackup:0,
-    autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar'}, s.settings||{});
+    autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar', motion:'auto'}, s.settings||{});
   s.events=s.events||[];
   s.deletedEv=s.deletedEv||[];
   s.goldFlow=s.goldFlow||[];   // [{d,buy,sell}] 골드 수급 추이   // 사용자가 지운 자동 이벤트 서명(d|t) — 재추가 방지
@@ -1313,6 +1355,26 @@ const indi={
   stdev(a){ if(a.length<2) return null;
     const m=a.reduce((x,y)=>x+y,0)/a.length;
     return Math.sqrt(a.reduce((x,y)=>x+(y-m)*(y-m),0)/(a.length-1)); },
+  /* 누적합으로 전 구간 이동평균/볼린저를 한 번에 계산 — 지점마다 다시 더하면 O(n·w) */
+  maSeries(ps,n){
+    const out=new Array(ps.length).fill(null); let s=0;
+    for(let i=0;i<ps.length;i++){ s+=ps[i]; if(i>=n) s-=ps[i-n];
+      if(i>=n-1) out[i]=s/n; }
+    return out;
+  },
+  bollSeries(ps){
+    const N=CONFIG.BB_N, out=new Array(ps.length).fill(null);
+    let s=0, s2=0;
+    for(let i=0;i<ps.length;i++){
+      s+=ps[i]; s2+=ps[i]*ps[i];
+      const w=Math.min(N,i+1);
+      if(i>=N){ s-=ps[i-N]; s2-=ps[i-N]*ps[i-N]; }
+      if(w<10) continue;
+      const m=s/w, v=Math.max(0,s2/w-m*m), sd=Math.sqrt(v);
+      out[i]={mid:m, up:m+CONFIG.BB_K*sd, dn:m-CONFIG.BB_K*sd, w};
+    }
+    return out;
+  },
   boll(ps,i){ const w=Math.min(CONFIG.BB_N,i+1); if(w<10) return null;
     let s=0; for(let j=i-w+1;j<=i;j++) s+=ps[j];
     const m=s/w; let v=0; for(let j=i-w+1;j<=i;j++) v+=(ps[j]-m)*(ps[j]-m);
@@ -1496,6 +1558,37 @@ async function loadRemoteRaw(){
     return (j&&Array.isArray(j.items))? j:null;
   }catch(e){ return null; }
 }
+/* ★넥슨 공지 API 직접 조회.
+   원래 이벤트는 자동수집 저장소의 events.json에서만 들어왔다 → 수집기를 설치하지
+   않으면 이벤트 달력이 영원히 비어 있었다. 브라우저 직접 호출이 가능하다는 것과
+   경로(/heroes/v1/notice-event)가 실측으로 확정됐으므로 앱에서도 직접 받는다.
+   스키마: {event_notice:[{title,url,notice_id,date_event_start,date_event_end,ongoing_flag}]} */
+const NOTICE_URL='https://open.api.nexon.com/heroes/v1/notice-event';
+async function fetchNotices(){
+  try{
+    const r=await fetch(NOTICE_URL,{headers:{'x-nxopen-api-key':apiKeyNow()}});
+    if(!r.ok) return null;
+    const j=await r.json();
+    const arr=(j&&(j.event_notice||j.notice))||[];
+    if(!Array.isArray(arr)||!arr.length) return null;
+    const dead=S.deletedEv||[];
+    let n=0;
+    arr.forEach(e=>{
+      const t=(e.title||'').trim(); if(!t) return;
+      const raw=e.date_event_start||e.date||e.date_create;
+      if(!raw) return;
+      const d=String(raw).slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+      const sig=d+'|'+t;
+      if(dead.indexOf(sig)>-1) return;
+      if(S.events.some(x=>x.d===d&&x.t===t)) return;
+      S.events.push({d, t, u:e.url||'', src:'auto'});
+      n++;
+    });
+    return n? ('이벤트 공지 '+n+'건 추가') : null;
+  }catch(e){ return null; }
+}
+
 /* 자동 수집된 이벤트 공지 병합 (data/events.json, 수집기 collectNotices와 세트)
    계약: {updated, source, events:[{d,t,u,kind:'auto'}]}
    같은 날짜+제목이면 건너뛴다. 사용자가 지운 이벤트는 deletedEv에 기록해
@@ -1550,6 +1643,7 @@ async function refreshAll(){
   btn.disabled=true; btn.textContent='조회 중…';
   const lines=[];
   const rm=await mergeRemote(); if(rm) lines.push(rm);
+  const en=await fetchNotices(); if(en) lines.push(en);
   const em=await mergeEvents(); if(em) lines.push(em);
   // 브라우저 직접 호출 가능 여부를 1회만 확인(넥슨 API는 자기 도메인만 CORS 허용)
   let blocked=false;
@@ -1831,14 +1925,34 @@ function item(){
   const list=S.items.filter(i=>i.unit!=='krw');
   return list.find(i=>i.id===cur)||list[0]||null;
 }
-function sortedEntries(it){ return [...it.entries].sort((a,b)=>a.d<b.d?-1:1); }
+/* ★성능: sortedEntries/entriesInPeriod는 한 번 그릴 때 수백 번 불린다.
+   매번 배열을 복사·정렬하면 종목 60개 × 180일에서 수천 번의 정렬이 발생해
+   폰에서 수 초씩 멈춘다. 데이터 버전(DATA_VER)이 바뀔 때만 다시 계산한다.
+   ※ 항목을 직접 수정하는 코드는 반드시 bumpData()를 부를 것. */
+let DATA_VER=0;
+const _seCache=new Map(), _epCache=new Map();
+function bumpData(){ DATA_VER++; }
+function sortedEntries(it){
+  const c=_seCache.get(it.id);
+  if(c&&c.ver===DATA_VER) return c.arr;
+  const arr=[...it.entries].sort((a,b)=>a.d<b.d?-1:1);
+  _seCache.set(it.id,{ver:DATA_VER,arr});
+  return arr;
+}
 function latestPrice(it){ const es=sortedEntries(it); return es.length?es[es.length-1].p:null; }
 function entriesInPeriod(it){
-  const es=sortedEntries(it);
   const p=S.settings.period;
-  if(p==='all'||!es.length) return es;
-  const cut=new Date(es[es.length-1].d).getTime()-(+p)*864e5;
-  return es.filter(e=>new Date(e.d).getTime()>=cut);
+  const c=_epCache.get(it.id);
+  if(c&&c.ver===DATA_VER&&c.period===p) return c.arr;
+  const es=sortedEntries(it);
+  let arr;
+  if(p==='all'||!es.length) arr=es;
+  else{
+    const cut=new Date(es[es.length-1].d).getTime()-(+p)*864e5;
+    arr=es.filter(e=>new Date(e.d).getTime()>=cut);
+  }
+  _epCache.set(it.id,{ver:DATA_VER,period:p,arr});
+  return arr;
 }
 function iconOf(it,sz){
   sz=sz||20;
@@ -1976,7 +2090,7 @@ function renderBrowse(){
     /* 좁은 화면에선 미리보기가 화면 밖에 있으므로 그리로 데려간다 */
     if(window.innerWidth<1000){
       const pc=document.getElementById('prevCard');
-      if(pc) pc.scrollIntoView({behavior:'smooth', block:'nearest'});
+      if(pc) pc.scrollIntoView({behavior:scrollBehavior(), block:'nearest'});
     }
   });
 }
@@ -2266,7 +2380,7 @@ function renderOnboard(){
     const a=b.dataset.ob;
     if(a==='refresh'){ refreshAll(); return; }
     switchTab(a);
-    window.scrollTo({top:0,behavior:'smooth'});
+    window.scrollTo({top:0,behavior:scrollBehavior()});
   });
 }
 function renderHeaderMeta(){
@@ -2299,11 +2413,18 @@ function sparkPath(ps,W,H){
     d+=(d?' L':'M')+x.toFixed(1)+' '+y.toFixed(1); });
   return d;
 }
-function sparkSVG(ps, col){
+/* amp: 이 종목의 흔들림이 목록 전체에서 차지하는 상대 크기(0~1).
+   ★Lowe(1999, 2004): 학습자는 '주제적으로 중요한 것'이 아니라 '지각적으로
+   두드러진 것'을 추출한다. 스파크라인을 각자 최저~최고로 정규화하면 0.5%
+   흔들린 종목이 40% 폭등한 종목과 똑같이 요동쳐 보인다 — 두드러짐과 중요도가
+   어긋난다. 그래서 진폭을 실제 변동성 비율만큼만 준다(안정적인 종목은 납작하게). */
+function sparkSVG(ps, col, amp){
   const W=62,H=12;
   if(ps.length<2) return '<span class="spark"></span>';
+  const a=Math.max(0.12, Math.min(1, amp==null?1:amp));
   const mn=Math.min(...ps), mx=Math.max(...ps);
-  const Y=p=> mx>mn? H-1.5-(p-mn)/(mx-mn)*(H-3) : H/2;
+  const mid=H/2, half=(H-3)/2*a;
+  const Y=p=> mx>mn? mid+half-(p-mn)/(mx-mn)*(half*2) : mid;
   let g='<svg class="spark" viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">';
   // 정상 범위 밴드(±1σ)
   const m=ps.reduce((a,b)=>a+b,0)/ps.length;
@@ -2312,11 +2433,17 @@ function sparkSVG(ps, col){
     const yTop=Y(Math.min(mx,m+sd)), yBot=Y(Math.max(mn,m-sd));
     g+='<rect x="0" y="'+yTop.toFixed(1)+'" width="'+W+'" height="'+Math.max(1,(yBot-yTop)).toFixed(1)+'" fill="#232C3B"/>';
   }
-  g+='<path d="'+sparkPath(ps,W,H)+'" fill="none" stroke="#7A87A0" stroke-width="1"/>';
+  let d='';
+  ps.forEach((p,i)=>{ const x=i/(ps.length-1)*W;
+    d+=(d?' L':'M')+x.toFixed(1)+' '+Y(p).toFixed(1); });
+  g+='<path d="'+d+'" fill="none" stroke="#7A87A0" stroke-width="1"/>';
   g+='<circle cx="'+W+'" cy="'+Y(ps[ps.length-1]).toFixed(1)+'" r="1.7" fill="'+col+'"/>';
   return g+'</svg>';
 }
 let wlSort='chg', wlQ='';
+/* 화면에 한 번에 그리는 행 수 상한. 인챈트를 여럿 담으면 수십 행이 되는데,
+   전부 그리면 렌더가 느려지고 훑기도 어렵다(힉스의 법칙). */
+let wlLimit=30;
 function renderBoard(){
   const box=document.getElementById('board');
   // 상단 요약: 오늘 몇 개가 오르고 내렸는지 한 줄로
@@ -2348,11 +2475,18 @@ function renderBoard(){
        오늘 가장 크게 움직인 하나만 확실히 다르게 표시한다. */
     let topMover=null, topAbs=1.5;
     rows.forEach(x=>{ if(x.chg!=null&&Math.abs(x.chg)>topAbs){ topAbs=Math.abs(x.chg); topMover=x.it.id; } });
+
+    const total=rows.length;
+    rows=rows.slice(0,wlLimit);
+    /* 목록 안에서 변동계수가 가장 큰 종목을 1로 두고 나머지를 그에 비례시킨다 */
+    const cvs=rows.map(x=>indi.cv(x.es.slice(-14).map(e=>e.p))||0);
+    const cvMax=Math.max(...cvs, 1e-9);
     let html='';
-    rows.forEach(({it,last,chg,es})=>{
+    rows.forEach(({it,last,chg,es},ri)=>{
       const ps=es.slice(-14).map(e=>e.p);
+      const amp=Math.sqrt((cvs[ri]||0)/cvMax);   // 제곱근: 작은 종목도 흔적은 남게
       const col= chg==null?'var(--dim)':(chg>0.5?'var(--up)':chg<-0.5?'var(--dn)':'var(--dim)');
-      const spark=sparkSVG(ps,col);
+      const spark=sparkSVG(ps,col,amp);
       const isTop= it.id===topMover;
       html+='<div class="wl'+(it.id===cur?' sel':'')+(isTop?' mover':'')+'" data-id="'+it.id+'">'
         +'<span class="ico">'+iconOf(it,30)+'</span>'
@@ -2364,14 +2498,17 @@ function renderBoard(){
         +'<div class="chg num" style="color:'+col+'">'+(chg!=null?((chg>0?'+':'')+(Math.round(chg*10)/10)+'%'):'—')+'</div></div>'
         +'</div>';
     });
+    if(total>rows.length)
+      html+='<div class="wl add" data-id="__more">'+(total-rows.length)+'개 더 보기</div>';
     html+='<div class="wl add" data-id="__add">＋ 종목 추가</div>';
     box.innerHTML=html;
   }
   bindImgFallback(box);
   box.querySelectorAll('[data-id]').forEach(r=>r.onclick=()=>{
+    if(r.dataset.id==='__more'){ wlLimit+=30; renderBoard(); return; }
     if(r.dataset.id==='__add'){ switchTab('browse'); return; }
     cur=r.dataset.id; selIdx=null; renderAll();
-    window.scrollTo({top:0, behavior:'smooth'});
+    window.scrollTo({top:0, behavior:scrollBehavior()});
   });
 }
 
@@ -2444,7 +2581,8 @@ function renderChart(){
   if(mode==='raw'){
     if(it.target) dom.push(it.target);
     if(it.alertHigh) dom.push(it.alertHigh);
-    for(let i=0;i<es.length;i++){ const b=indi.boll(ps,i); if(b){ dom.push(b.up,b.dn); } }
+    const _bb=indi.bollSeries(ps);
+    for(let i=0;i<es.length;i++){ const b=_bb[i]; if(b){ dom.push(b.up,b.dn); } }
   }
   let pMin=Math.min(...dom),pMax=Math.max(...dom);
   if(pMin===pMax){pMin-=Math.abs(pMin)*.05||1;pMax+=Math.abs(pMax)*.05||1;}
@@ -2475,13 +2613,15 @@ function renderChart(){
   const evs=S.events.filter(e=>{const t=new Date(e.d).getTime();return t>=t0&&t<=t1;}).sort((a,b)=>a.d<b.d?-1:1);
   evs.forEach((e,i)=>{ const x=X(new Date(e.d).getTime());
     g+='<line x1="'+x.toFixed(1)+'" y1="'+padT+'" x2="'+x.toFixed(1)+'" y2="'+(padT+priceH)+'" stroke="#2A3446" stroke-dasharray="3 4"/>'
-      +'<circle cx="'+x.toFixed(1)+'" cy="'+(padT+7)+'" r="'+Math.max(7.5,FS2*0.8)+'" fill="#232C3B"/>'
-      +'<text x="'+x.toFixed(1)+'" y="'+(padT+10.5)+'" fill="#8A97AE" font-size="'+FS2+'" text-anchor="middle">'+(i+1)+'</text>'; });
+      /* 이벤트는 맥락이지 데이터가 아니다 — 채운 원 대신 가는 테두리로 무게를 낮춘다 */
+      +'<circle cx="'+x.toFixed(1)+'" cy="'+(padT+7)+'" r="'+Math.max(7,FS2*0.75)+'" fill="none" stroke="#2A3446"/>'
+      +'<text x="'+x.toFixed(1)+'" y="'+(padT+10.5)+'" fill="#7A87A0" font-size="'+FS2+'" text-anchor="middle">'+(i+1)+'</text>'; });
 
   if(mode!=='cmp'){
     // 볼린저
     const bbU=[],bbD=[];
-    for(let i=0;i<es.length;i++){ const b=indi.boll(ps,i);
+    const bbS=(typeof _bb!=='undefined'&&_bb)? _bb : indi.bollSeries(ps);
+    for(let i=0;i<es.length;i++){ const b=bbS[i];
       bbU.push(b?{x:xi(i),y:Y(mode==='krw'? b.up/1e7*(goolbiRateAt(es[i].d)||goolbiRate()):b.up)}:null);
       bbD.push(b?{x:xi(i),y:Y(mode==='krw'? b.dn/1e7*(goolbiRateAt(es[i].d)||goolbiRate()):b.dn)}:null); }
     const segs=[]; let seg=null;
@@ -2531,8 +2671,9 @@ function renderChart(){
     }
     // 이동평균
     const maPath=(n,color)=>{
+      const ser=indi.maSeries(ps,n);
       let d='';
-      for(let i=0;i<es.length;i++){ let v=indi.ma(ps,n,i); if(v==null) continue;
+      for(let i=0;i<es.length;i++){ let v=ser[i]; if(v==null) continue;
         if(mode==='krw') v=v/1e7*(goolbiRateAt(es[i].d)||goolbiRate());
         d+=(d?' L':'M')+xi(i).toFixed(1)+' '+Y(v).toFixed(1); }
       if(d) g+='<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="1.6" opacity=".9"/>';
@@ -2588,14 +2729,33 @@ function renderChart(){
     g+='<line x1="'+x.toFixed(1)+'" y1="'+padT+'" x2="'+x.toFixed(1)+'" y2="'+(volTop+volH)+'" stroke="#E9EDF4" stroke-width="0.8" stroke-dasharray="4 4" opacity=".55"/>'
       +'<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="5" fill="#E0A63C" stroke="#0F141C" stroke-width="2"/>';
   }
-  // 터치 영역
-  es.forEach((e,i)=>{ const x=xi(i);
+  /* ★성능: 지점마다 투명 사각형을 깔면 기록이 쌓일수록 요소 수가 선형으로 늘어
+     렌더가 급격히 느려진다. 지점이 많으면 오버레이 하나만 두고 클릭 위치로
+     인덱스를 계산한다(적을 때는 정확도를 위해 개별 영역 유지). */
+  const HIT_MAX=120;
+  if(es.length<=HIT_MAX){
     const w=(W-padL-padR)/Math.max(es.length,1);
-    g+='<rect x="'+(x-w/2).toFixed(1)+'" y="'+padT+'" width="'+Math.max(w,10).toFixed(1)+'" height="'+(priceH+gap+volH)+'" fill="transparent" data-i="'+i+'"/>'; });
+    es.forEach((e,i)=>{ const x=xi(i);
+      g+='<rect x="'+(x-w/2).toFixed(1)+'" y="'+padT+'" width="'+Math.max(w,10).toFixed(1)+'" height="'+(priceH+gap+volH)+'" fill="transparent" data-i="'+i+'"/>'; });
+  }else{
+    g+='<rect id="hitAll" x="'+padL+'" y="'+padT+'" width="'+(W-padL-padR)+'" height="'+(priceH+gap+volH)+'" fill="transparent"/>';
+  }
   g+='</svg>';
   wrap.innerHTML=g;
-  wrap.onclick=ev=>{ const t=ev.target.closest('[data-i]'); if(!t) return;
-    const i=+t.dataset.i; selIdx= (selIdx===i? null : i);
+  wrap.onclick=ev=>{
+    let i=null;
+    const t=ev.target.closest('[data-i]');
+    if(t) i=+t.dataset.i;
+    else if(ev.target.id==='hitAll'){
+      // 클릭한 가로 위치를 가장 가까운 기록으로 환산
+      const svg=wrap.querySelector('svg'), r=svg.getBoundingClientRect();
+      if(!r.width) return;
+      const vx=(ev.clientX-r.left)/r.width*W;
+      let best=0, bd=Infinity;
+      for(let k=0;k<es.length;k++){ const d2=Math.abs(xi(k)-vx); if(d2<bd){ bd=d2; best=k; } }
+      i=best;
+    }
+    if(i==null) return; selIdx= (selIdx===i? null : i);
     renderChart();
     if(selIdx==null){ document.getElementById('tip').style.display='none'; return; }
     const e=es[i], tip=document.getElementById('tip');
@@ -2803,18 +2963,24 @@ function marketStats(){
    단순 합산은 비싼 품목이 지수를 지배한다. 가중치는 거래량이 정석이며,
    우리는 '거래된 시간(entry.s)'을 대용치로 쓴다(없으면 1). */
 function weightedIndex(items){
-  const dates=[...new Set(items.flatMap(it=>entriesInPeriod(it).map(e=>e.d)))].sort();
+  /* ★성능: 날짜마다 각 종목의 전체 기록을 다시 훑으면 O(날짜×종목×기록)이 된다
+     (180일 × 60종목 × 180기록 ≈ 200만 회). 종목별 포인터를 앞으로만 밀어
+     O(날짜×종목 + 전체기록)으로 줄인다. 결과는 동일하다. */
+  const per=items.map(it=>entriesInPeriod(it));
+  const dates=[...new Set(per.flat().map(e=>e.d))].sort();
   if(dates.length<2) return null;
+  const ptr=new Array(items.length).fill(-1);
   const level=[], keep=[];
   dates.forEach(d=>{
     let num=0, den=0, hit=0;
-    items.forEach(it=>{
-      const es=entriesInPeriod(it).filter(e=>e.d<=d);
-      if(!es.length) return;
-      const e=es[es.length-1];
+    for(let i=0;i<items.length;i++){
+      const arr=per[i];
+      while(ptr[i]+1<arr.length && arr[ptr[i]+1].d<=d) ptr[i]++;
+      if(ptr[i]<0) continue;
+      const e=arr[ptr[i]];
       const w=(e.s!=null&&e.s>0)? e.s : 1;
       num+=e.p*w; den+=w; hit++;
-    });
+    }
     if(hit===items.length&&den){ level.push(num/den); keep.push(d); }
   });
   if(level.length<2) return null;
@@ -3250,6 +3416,20 @@ function renderEvents(){
   });
   if(!S.events.length) box.innerHTML='<div class="hint">이벤트 없음</div>';
 }
+/* 동작 줄이기 (Bétrancourt & Boucheix 2024, User Control 원칙:
+   "애니메이션을 켜고 끄는 제어를 제공하라. 반복 애니메이션은 건너뛸 수 있어야 한다.")
+   OS 설정만 믿으면 안 된다 — 기기에서 못 켜는 사람도 있고, 상황에 따라 원할 수도 있다.
+   CSS 전환뿐 아니라 JS의 부드러운 스크롤까지 함께 꺼야 실제로 동작이 줄어든다. */
+function reducedMotion(){
+  if(S&&S.settings&&S.settings.motion==='reduce') return true;
+  try{ return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; }
+}
+function scrollBehavior(){ return reducedMotion()? 'auto':'smooth'; }
+function applyMotion(){
+  document.body.classList.toggle('M-reduce', reducedMotion());
+  const b=document.getElementById('motionBtn');
+  if(b) b.textContent='동작: '+(S.settings.motion==='reduce'?'줄임':'자동');
+}
 function applyLayout(){
   document.body.className='L-'+(S.settings.layout||'auto');
   document.getElementById('layoutBtn').textContent=
@@ -3291,7 +3471,7 @@ function showToast(msg, snap){
 function doUndo(){
   if(!undoSnap) return;
   try{
-    S=ensureDefaults(JSON.parse(undoSnap));
+    S=ensureDefaults(JSON.parse(undoSnap)); bumpData();
     const list=S.items.filter(i=>i.unit!=='krw');
     cur= list.length? list[0].id : null;
     undoSnap=null;
@@ -3336,6 +3516,10 @@ document.getElementById('layoutBtn').onclick=()=>{
   S.settings.layout=order[(order.indexOf(S.settings.layout||'auto')+1)%3];
   applyLayout(); saveData(); renderChart();
 };
+document.getElementById('motionBtn').onclick=()=>{
+  S.settings.motion = S.settings.motion==='reduce' ? 'auto':'reduce';
+  applyMotion(); saveData();
+};
 document.getElementById('btnRefresh').onclick=refreshAll;
 document.getElementById('btnDeep').onclick=()=>{ FORCE_DEEP=true; refreshAll(); };
 document.getElementById('btnScan').onclick=scanAll;
@@ -3357,11 +3541,11 @@ document.getElementById('btnGxAdd').onclick=()=>{
 /* 피츠의 법칙: 자주 쓰는 '종목 전환'까지의 거리를 줄인다 */
 document.getElementById('heroJump').onclick=()=>{
   const c=document.querySelector('.wlCard');
-  if(c) c.scrollIntoView({behavior:'smooth', block:'start'});
+  if(c) c.scrollIntoView({behavior:scrollBehavior(), block:'start'});
 };
 document.querySelectorAll('#wlSort button').forEach(b=>
   b.onclick=()=>{ wlSort=b.dataset.s; renderBoard(); });
-document.getElementById('wlQ').oninput=e=>{ wlQ=e.target.value.trim(); renderBoard(); };
+document.getElementById('wlQ').oninput=e=>{ wlQ=e.target.value.trim(); wlLimit=30; renderBoard(); };
 document.getElementById('catSearch').oninput=e=>{ browseQ=e.target.value.trim(); browseLimit=24; renderBrowse(); };
 document.querySelectorAll('#sortSeg button').forEach(b=>
   b.onclick=()=>{ browseSort=b.dataset.s; renderBrowse(); });
@@ -3594,8 +3778,9 @@ function bootUI(){
   } else if(S.settings.remoteUrl){
     (async()=>{
       const rm=await mergeRemote();
+      const en=await fetchNotices();
       const em=await mergeEvents();
-      if(rm||em){ document.getElementById('fetchStat').innerHTML=[rm,em].filter(Boolean).join('<br>');
+      if(rm||en||em){ document.getElementById('fetchStat').innerHTML=[rm,en,em].filter(Boolean).join('<br>');
         const msgs=checkOrders();
         if(msgs.length) document.getElementById('fetchStat').innerHTML+='<br>'+msgs.join('<br>');
         recordCurve(); saveData(); renderAll(); }
