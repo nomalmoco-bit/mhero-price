@@ -120,21 +120,39 @@ for (const c of cfg.items) {
     if (typeof p !== 'number') continue;
     let d = new Date().toISOString().slice(0, 10);
     if (dk) { const m = String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if (m) d = m[0]; }
-    if (!byDay[d]) byDay[d] = { sum: 0, n: 0, cnt: 0, lo: Infinity, hi: -Infinity };
+    if (!byDay[d]) byDay[d] = { sum: 0, n: 0, cnt: 0, lo: Infinity, hi: -Infinity,
+                                 o: null, c: null, oT: null, cT: null, loH: null, hiH: null };
     byDay[d].sum += p; byDay[d].n++;
     byDay[d].cnt += (ck && typeof r[ck] === 'number') ? r[ck] : 1;
-    if (typeof r.min_price === 'number' && r.min_price > 0) byDay[d].lo = Math.min(byDay[d].lo, r.min_price);
-    if (typeof r.max_price === 'number') byDay[d].hi = Math.max(byDay[d].hi, r.max_price);
+    /* ★앱(ingestRecords)과 정확히 같은 규칙으로 만들어야 한다.
+       특히 loH/hiH(고가·저가 발생 시각)를 빼먹으면, 원격 병합이 앱이 직접 받아둔
+       시각 정보를 덮어써서 '시간 반영 캔들'이 무용지물이 된다. */
+    const ts = dk ? String(r[dk]) : '';
+    let hh = null;
+    const hm = ts.match(/T(\d{2}):/);
+    if (hm) hh = +hm[1];
+    if (typeof r.min_price === 'number' && r.min_price > 0 && r.min_price < byDay[d].lo) {
+      byDay[d].lo = r.min_price; byDay[d].loH = hh;
+    }
+    if (typeof r.max_price === 'number' && r.max_price > byDay[d].hi) {
+      byDay[d].hi = r.max_price; byDay[d].hiH = hh;
+    }
+    if (byDay[d].oT === null || ts < byDay[d].oT) { byDay[d].oT = ts; byDay[d].o = p; }
+    if (byDay[d].cT === null || ts > byDay[d].cT) { byDay[d].cT = ts; byDay[d].c = p; }
   }
   let added = 0, updated = 0;
   for (const d in byDay) {
     // 응답은 시간당 스냅샷 → 하루치 p는 시간평균들의 평균, s는 거래가 잡힌 시간 수
     const p = Math.round(byDay[d].sum / byDay[d].n * scale);
     const e = { d, p, s: byDay[d].cnt };
-    if (byDay[d].lo < Infinity) e.lo = Math.round(byDay[d].lo * scale);
-    if (byDay[d].hi > -Infinity) e.hi = Math.round(byDay[d].hi * scale);
+    if (byDay[d].lo < Infinity) { e.lo = Math.round(byDay[d].lo * scale);
+      if (byDay[d].loH != null) e.loH = byDay[d].loH; }
+    if (byDay[d].hi > -Infinity) { e.hi = Math.round(byDay[d].hi * scale);
+      if (byDay[d].hiH != null) e.hiH = byDay[d].hiH; }
+    if (byDay[d].o != null) e.o = Math.round(byDay[d].o * scale);
+    if (byDay[d].c != null) e.c = Math.round(byDay[d].c * scale);
     const i = ent.entries.findIndex(x => x.d === d);
-    if (i > -1) { if (ent.entries[i].p !== p || ent.entries[i].s !== e.s || ent.entries[i].lo !== e.lo) { ent.entries[i] = e; updated++; } }
+    if (i > -1) { if (ent.entries[i].p !== p || ent.entries[i].s !== e.s || ent.entries[i].lo !== e.lo || ent.entries[i].c !== e.c) { ent.entries[i] = e; updated++; } }
     else { ent.entries.push(e); added++; }
   }
   ent.entries.sort((a, b) => (a.d < b.d ? -1 : 1));
