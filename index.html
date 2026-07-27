@@ -52,6 +52,51 @@
   · 지표는 지점마다 재계산하지 말고 누적합 시리즈(maSeries/bollSeries)를 쓸 것.
   · DOM/SVG 요소 수는 데이터 양에 비례해 늘리지 말 것(터치영역·목록 행 상한).
   · 기능을 추가하면 perf.mjs로 재측정할 것. 폰은 이 측정치의 3~5배로 보면 된다.
+■ 검증은 '오류 없이 뜨는가'가 아니라 '숫자가 맞는가'로 한다. verify.mjs는
+  손으로 계산 가능한 데이터를 넣고 화면의 21개 값(등락률·수익률·현재위치·중앙값·
+  변동계수·변동폭·낙폭·굴비환산·일중위치·수급비중·상관·수수료·손익 등)을
+  독립 계산과 대조한다. 지표를 고치면 여기 기대값도 함께 손볼 것.
+■ 같은 통계를 두 곳에서 따로 구현하지 말 것. cv가 모집단(n), stdev가 표본(n-1)을
+  써서 같은 '표준편차'가 두 값을 냈다. 지표는 indi.* 하나만 거치게 한다.
+■ 화면에 값이 없을 때 그럴듯한 기본값(50:50 등)을 보여주지 말 것. 저장된
+  마지막 값이 있으면 그것을, 없으면 '없음'을 말한다. 기본값은 거짓말이 된다.
+■ 성능: renderAll은 '보이는 탭'만 그린다(tabOn). 숨은 탭까지 그리면 종목을 누를
+  때마다 헛일이 쌓인다 — 실측 482ms → 253ms. 새 렌더 함수를 renderAll에 넣을 땐
+  어느 탭 소속인지 확인하고 tabOn 가드를 붙일 것. 탭 전환(switchTab)에서도
+  같은 렌더를 호출해야 열었을 때 최신 상태가 된다.
+■ 기록 표는 최근 40개만 그리고 '더 보기'로 늘린다(전체를 그리면 실측 140ms).
+■ 차트는 밀도를 본다: 한 점당 폭이 3.2 단위 미만이면 캔들이 2px가 되어 읽히지
+  않으므로 자동으로 선으로 낮춘다(가독성 + 비용 동시 해결).
+■ 앱(ingestRecords)과 수집기(collect.mjs)는 entry를 같은 규칙으로 만들어야 한다.
+  한쪽에만 필드가 있으면 원격 병합에서 정보가 사라진다 — 실제로 수집기에
+  loH/hiH가 없어 앱이 받아둔 발생 시각이 덮어써지고 있었다.
+  mergeRemote는 통째로 교체하지 말고 필드 단위로 합칠 것(빈 값이 채워진 값을 못 지우게).
+■ ★ID 대 클래스 특이도 함정 — 세 번 겪었다(#loginOv, #tab-*, #toast).
+  ID로 display를 지정한 요소를 .hide로 토글하면 클래스가 져서 숨김이 안 먹는다.
+  반드시 #요소.hide{display:none !important}를 함께 둘 것.
+  새 요소를 만들 때 이 조합(ID display + .hide 토글)이면 규칙을 같이 추가한다.
+■ 중복 UI를 남기지 말 것 — 넥슨마켓 붙여넣기 카드가 두 벌 있었고, 옛 버전의
+  renderMarket(rows)가 새 renderMarket()(시장 산점도)과 이름이 겹쳐 조용히
+  오작동했다. 기능을 새로 만들면 옛 것을 반드시 제거한다.
+■ 버튼 문구는 '무엇이 일어나는지'를 말해야 한다. 한 글자 토글(봉/선)이나
+  기계적 표기(items.json 생성)는 아는 사람만 안다. 상태 토글은 가능하면
+  선택지를 나란히 두 개 보여줄 것(어느 쪽이 켜져 있는지가 한눈에 보인다).
+■ 되돌리기 알림은 '무슨 일이 있었나 + 남은 시간 + 두 개의 명확한 버튼'이다.
+  글자만 떠 있으면 미완성으로 보이고, 언제 사라지는지 모르면 불안하다.
+■ 탭 구조(v9.3): 시세=한 종목을 보는 곳(히어로·차트·관심종목·지표·수집·기록),
+  분석=시장 전체를 보는 곳(산점도·물가지수·상관·이벤트). 한 탭에 카드를 계속
+  쌓으면 "이거 얼마?"에 답하는 화면이 흐려진다 — 실제로 시세 탭 카드가 15개까지
+  늘어났었다. 새 기능은 '한 종목 이야기'인지 '시장 이야기'인지로 갈라 넣을 것.
+■ 마지막으로 보던 종목은 settings.curId에 저장한다. 열 때마다 첫 종목으로
+  돌아가면 매번 다시 찾아야 한다.
+■ 카탈로그를 늘릴 때 이름을 추측하지 말 것. 틀린 이름은 HTTP 400이고 조용히 낭비된다.
+  절차: (1) 같은 API를 쓰는 서비스(MabiHeroes.gg 등)에서 실제 표시명을 확보하거나
+  (2) 탐색 탭의 이름 검증기에 후보를 붙여넣어 400/빈응답/데이터를 가려낸 뒤
+  '통과한 이름 전부 담기'로 추가한다. 손으로 옮겨 적으면 오타가 난다.
+■ entry 스키마: {d, p(일평균), s(거래된 시간), lo/hi(일중 저·고), loH/hiH(발생 시각),
+  o/c(시가·종가), m(메모), src}. o/c가 있으면 차트가 진짜 캔들로 그려진다.
+  수집기(collect.mjs)와 앱(ingestRecords)이 같은 규칙으로 만들어야 한다 — 한쪽만
+  바꾸면 원격 병합 시 캔들이 반쪽만 나온다.
 ■ 골드 수급 추이는 서버(수집기)가 매시간 data/gold-flow.json에 쌓고,
   앱은 mergeGoldFlow()로 병합한다. 앱에서 버튼을 눌러야만 기록되던 구조라
   앱을 며칠 안 열면 추이가 끊겼다. 이 병합을 지우지 말 것.
@@ -447,22 +492,37 @@ img.itic{border-radius:4px; object-fit:cover}
 .empty{color:var(--dim); font-size:12.5px; padding:26px 0; line-height:1.8}
 /* 하단 탭바를 확실히 피해서 띄운다. 모바일은 탭바 위 중앙,
    넓은 화면에서는 가운데 알약형 탭바와 겹치지 않도록 오른쪽 아래. */
+/* 되돌리기 알림 — 글자만 떠 있으면 미완성으로 보인다.
+   무엇이 일어났는지(제목) + 남은 시간(진행 바) + 명확한 버튼 두 개로 구성한다.
+   ★#toast.hide는 반드시 !important — ID 선택자(#toast)가 .hide(클래스)를 이기기 때문에
+     이 규칙이 없으면 알림이 영원히 화면에 남는다(실제로 발생했던 버그). */
 #toast{position:fixed; left:50%; transform:translateX(-50%);
   bottom:calc(var(--nav-h) + 18px + env(safe-area-inset-bottom)); z-index:60;
-  display:flex; align-items:center; gap:16px;
+  display:flex; align-items:center; gap:14px;
   background:var(--panel); border:1px solid var(--rule); border-radius:var(--r);
-  padding:12px 14px 12px 18px; font-size:12.5px;
-  width:max-content; max-width:min(92vw,460px);
-  box-shadow:0 6px 20px rgba(0,0,0,.45)}
-#toast.docQ{display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+  padding:13px 12px 13px 16px;
+  width:max-content; max-width:min(92vw,440px);
+  box-shadow:0 10px 28px rgba(0,0,0,.5); overflow:hidden}
+#toast.hide{display:none !important}
+#toast .tBody{min-width:0}
+#toast .tMsg{font-size:13px; font-weight:600; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+#toast .tSub{font-size:11px; color:var(--dim); margin-top:2px}
+#toastUndo{background:none; color:var(--gold); border:1px solid var(--gold);
+  border-radius:8px; padding:9px 14px; font-size:12.5px; font-weight:600;
+  cursor:pointer; min-height:40px; white-space:nowrap; flex:0 0 auto}
+#toastClose{background:none; border:0; color:var(--dim); font-size:17px;
+  cursor:pointer; padding:0 4px; min-width:32px; min-height:36px; flex:0 0 auto}
+#toast .tBar{position:absolute; left:0; right:0; bottom:0; height:2px; background:var(--rule)}
+#toast .tBar i{display:block; height:100%; width:100%; background:var(--gold);
+  transform-origin:left center; transition:transform linear}
+body.M-reduce #toast .tBar i{transition:none}
+.docQ{display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
   border:1px solid var(--rule); border-radius:50%; font-size:9px; color:var(--dim);
   vertical-align:middle; margin-left:2px}
 [data-doc]:active .docQ{border-color:var(--gold); color:var(--gold)}
 #dlgInfo{max-width:min(92vw,440px)}
 .hide{display:none}
-#toastUndo{background:none; color:var(--gold); border:0; padding:9px 4px;
-  font-size:12.5px; font-weight:600; cursor:pointer; min-height:40px; white-space:nowrap;
-  text-decoration:underline; text-underline-offset:3px}
 
 @media(min-width:1000px){
   body.L-auto main, body.L-desktop main{
@@ -475,13 +535,13 @@ img.itic{border-radius:4px; object-fit:cover}
   body.L-auto #tab-chart .wlCard, body.L-desktop #tab-chart .wlCard{ grid-column:2; grid-row:1 / span 2 }
   body.L-auto #tab-chart .statCard, body.L-desktop #tab-chart .statCard{ grid-column:1; grid-row:3 }
   body.L-auto #tab-chart .goldCard, body.L-desktop #tab-chart .goldCard{ grid-column:2; grid-row:3 }
-  body.L-auto #tab-chart .mktCard, body.L-desktop #tab-chart .mktCard{ grid-column:1 / -1 }
-  body.L-auto #tab-chart .corrCard, body.L-desktop #tab-chart .corrCard{ grid-column:2; grid-row:4 }
-  body.L-auto #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard):not(.goldCard):not(.mktCard):not(.corrCard),
-  body.L-desktop #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard):not(.goldCard):not(.mktCard):not(.corrCard){
+  body.L-auto #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard):not(.goldCard),
+  body.L-desktop #tab-chart > .card:not(.chartCard):not(.wlCard):not(.statCard):not(.goldCard){
     grid-column:1 / -1 }
   body.L-auto #tab-sim:not(.hide), body.L-auto #tab-data:not(.hide), body.L-auto #tab-gold:not(.hide),
-  body.L-desktop #tab-sim:not(.hide), body.L-desktop #tab-data:not(.hide), body.L-desktop #tab-gold:not(.hide){
+  body.L-auto #tab-analysis:not(.hide),
+  body.L-desktop #tab-sim:not(.hide), body.L-desktop #tab-data:not(.hide), body.L-desktop #tab-gold:not(.hide),
+  body.L-desktop #tab-analysis:not(.hide){
     display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 44px; align-items:start }
   body.L-auto #tab-browse:not(.hide), body.L-desktop #tab-browse:not(.hide){
     display:grid; grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);
@@ -493,6 +553,7 @@ img.itic{border-radius:4px; object-fit:cover}
   nav{left:50%; transform:translateX(-50%); width:min(520px,88vw); bottom:18px;
     border:1px solid var(--rule); border-radius:var(--r); height:52px}
   /* 넓은 화면: 가운데 탭바와 겹치지 않게 오른쪽 아래로 */
+  body.L-auto #tab-analysis .mktCard, body.L-desktop #tab-analysis .mktCard{ grid-column:1 / -1 }
   #toast{left:auto; right:24px; transform:none; bottom:24px; max-width:min(60vw,420px)}
 }
 body.L-mobile main{max-width:640px !important}
@@ -523,15 +584,16 @@ body.L-mobile section.hide{display:none !important}
     <div class="hRight">
       <span id="who"></span>
       <span id="saveDot">저장 대기</span>
-      <button id="layoutBtn" aria-label="화면 모드 전환">화면:자동</button>
-      <button id="motionBtn" aria-label="동작 줄이기 전환">동작: 자동</button>
+      <button id="layoutBtn" aria-label="화면 배치 전환">배치 자동</button>
+      <button id="motionBtn" aria-label="화면 움직임 줄이기">움직임 켬</button>
     </div>
   </div>
-  <div class="sub" id="subLine">v9.0 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v9.6 · 2026-07-25 — 로딩 중…</div>
 </header>
 <nav>
   <button class="on" data-tab="chart">시세</button>
   <button data-tab="browse">탐색</button>
+  <button data-tab="analysis">분석</button>
   <button data-tab="gold">골드</button>
   <button data-tab="sim">모의거래</button>
   <button data-tab="data">설정</button>
@@ -572,8 +634,9 @@ body.L-mobile section.hide{display:none !important}
     <div class="modeRow">
       <select id="cmpSel" aria-label="비교 종목 선택"></select>
       <button id="krwBtn" aria-label="원화 환산 모드">₩ 원화</button>
-      <button id="typeBtn" aria-label="차트 종류 전환">선</button>
-      <button id="bigBtn" aria-label="차트 크게 보기">크게</button>
+      <button data-ct="bar" class="ctBtn" aria-label="봉 차트">봉</button>
+      <button data-ct="line" class="ctBtn" aria-label="선 차트">선</button>
+      <button id="bigBtn" aria-label="차트 높이 늘리기">크게</button>
     </div>
     <div id="chartWrap"></div>
     <div id="tip"></div>
@@ -606,24 +669,6 @@ body.L-mobile section.hide{display:none !important}
 
   </div>
 
-  <div class="card corrCard">
-    <h2>함께 움직이는 종목 — <b id="corrItem"></b></h2>
-    <table id="corrTable"></table>
-    <div class="hint">가격이 같이 오르내리는 종목입니다. 보통 함께 쓰이거나 서로 대체되기 때문이에요. <b>한쪽만 먼저 움직였다면 다른 쪽이 따라갈 수 있습니다.</b></div>
-  </div>
-
-  <div class="card mktCard">
-    <h2>시장 전체</h2>
-    <div id="mktScatter"></div>
-    <div class="legend">
-      <span>가로 = 평균 일간 변동률</span>
-      <span>세로 = 변동계수(가격 대비 흔들림)</span>
-      <span style="color:var(--gold)">점선 = 전체 평균</span>
-    </div>
-    <div class="hint">오른쪽 위로 갈수록 <b>많이 오르면서 크게 흔들리는</b> 종목. 무리에서 떨어진 점이 기회이자 위험입니다.</div>
-    <div id="mktIndex" style="margin-top:18px"></div>
-  </div>
-
   <div class="card">
     <h2>수집</h2>
     <div id="bkBanner" class="banner hide"></div>
@@ -636,6 +681,7 @@ body.L-mobile section.hide{display:none !important}
   <div class="card">
     <h2>기록</h2>
     <table id="histTable"></table>
+    <div id="histMore"></div>
     <details>
       <summary>직접 보정 입력 — API에 안 잡히는 종목</summary>
       <div class="hint">넥슨마켓 상품·저유동 종목용</div>
@@ -654,23 +700,6 @@ body.L-mobile section.hide{display:none !important}
       <textarea id="jsonPaste" placeholder='{"item":[...]}'></textarea>
       <button class="btn sm ghost" id="btnPaste">현재 종목에 반영</button>
     </details>
-  </div>
-
-  <div class="card">
-    <h2>이벤트 전후 성과 — <b id="evAnaItem"></b></h2>
-    <table id="evAnaTable"></table>
-    <div class="hint">이벤트 당일 → 7일 후. <b>초과</b> = 종목 변동 − 시장 변동. 시장이 함께 올랐다면 그건 이벤트 효과가 아닙니다.</div>
-  </div>
-
-  <div class="card">
-    <h2>이벤트 달력</h2>
-    <div id="evList"></div>
-    <div class="row">
-      <div><label>날짜</label><input type="date" id="evDate"></div>
-      <div><label>이벤트</label><input id="evName" placeholder="예: 신캐 출시"></div>
-    </div>
-    <button class="btn sm ghost" id="btnEv">이벤트 추가</button>
-    <div class="hint">'자동'은 넥슨 공지 수집분 · 삭제하면 다시 추가되지 않습니다</div>
   </div>
 
   <div class="card">
@@ -696,22 +725,10 @@ body.L-mobile section.hide{display:none !important}
   </div>
 
   <div class="card">
-    <h2>넥슨마켓 목록 붙여넣기</h2>
-    <div class="hint" style="margin-top:0">
-      아바타·포장 아이템(포장된 ○○)은 <b>넥슨마켓</b>에서만 거래돼서 게임 API에 없어요.
-      market.nexon.com의 목록 페이지를 <b>전체 선택 → 복사</b>해서 여기 붙여넣으면
-      이름·최저가·매물수를 자동으로 뽑아 기록합니다.
-    </div>
-    <textarea id="mktIn" placeholder="넥슨마켓 목록 페이지를 통째로 복사해 붙여넣기"></textarea>
-    <button class="btn sm ghost" id="btnMkt">목록 분석</button>
-    <div id="mktOut"></div>
-  </div>
-
-  <div class="card">
     <h2>거래소 종목 찾기</h2>
     <div class="seg" id="catChips"></div>
     <input id="catSearch" placeholder="카탈로그 검색 (예: 격노, 룬)">
-    <button class="btn sm ghost" id="btnScan">전체 스캔</button>
+    <button class="btn sm ghost" id="btnScan">카탈로그 전체 시세 조회</button>
     <div id="scanStat" class="hint"></div>
     <div class="seg" id="sortSeg" style="margin-top:8px">
       <button data-s="name" class="on">이름순</button>
@@ -728,7 +745,9 @@ body.L-mobile section.hide{display:none !important}
     <div class="hint" style="margin-top:0">후보 이름을 한 줄에 하나씩 입력하세요</div>
     <textarea id="probeIn" placeholder="강화의 룬&#10;추출의 룬&#10;인챈트 스크롤 (무기한)"></textarea>
     <button class="btn sm ghost" id="btnProbe">이름 검증 실행</button>
+    <button class="btn sm ghost hide" id="btnProbeAdd">통과한 이름 전부 관심종목에 담기</button>
     <div id="probeOut" class="sig" style="font-size:12.5px"></div>
+    <div class="hint">다른 시세 사이트에서 본 이름을 그대로 붙여넣어 확인할 수 있어요. 통과한 것만 담으면 헛된 조회가 없습니다.</div>
   </div>
 
   <div class="card">
@@ -739,7 +758,7 @@ body.L-mobile section.hide{display:none !important}
       <div><label>기록 날짜</label><input type="date" id="nxmDate"></div>
       <div><label>이름 검색(선택)</label><input id="nxmQ" placeholder="예: 슬링샷"></div>
     </div>
-    <button class="btn sm ghost" id="btnNxm">목록 읽기</button>
+    <button class="btn sm ghost" id="btnNxm">붙여넣은 목록 불러오기</button>
     <div class="row">
       <button class="btn sm ghost" id="btnNxmAll">검색 결과 전부 ★추가</button>
       <button class="btn sm ghost" id="btnNxmMoves">변동 있는 것만 보기</button>
@@ -747,6 +766,45 @@ body.L-mobile section.hide{display:none !important}
     <div id="nxmStat" class="hint"></div>
     <table id="nxmTable"></table>
   </div>
+</section>
+
+<!-- ════════ 분석 탭 ════════ -->
+<section id="tab-analysis" class="hide">
+  <div class="card mktCard">
+    <h2>시장 전체</h2>
+    <div id="mktScatter"></div>
+    <div class="legend">
+      <span>가로 = 평균 일간 변동률</span>
+      <span>세로 = 변동계수(가격 대비 흔들림)</span>
+      <span style="color:var(--gold)">점선 = 전체 평균</span>
+    </div>
+    <div class="hint">오른쪽 위로 갈수록 <b>많이 오르면서 크게 흔들리는</b> 종목. 무리에서 떨어진 점이 기회이자 위험입니다.</div>
+    <div id="mktIndex" style="margin-top:18px"></div>
+  </div>
+
+  <div class="card corrCard">
+    <h2>함께 움직이는 종목 — <b id="corrItem"></b></h2>
+    <table id="corrTable"></table>
+    <div class="hint">가격이 같이 오르내리는 종목입니다. 보통 함께 쓰이거나 서로 대체되기 때문이에요. <b>한쪽만 먼저 움직였다면 다른 쪽이 따라갈 수 있습니다.</b></div>
+  </div>
+
+  <div class="card">
+    <h2>이벤트 전후 성과 — <b id="evAnaItem"></b></h2>
+    <table id="evAnaTable"></table>
+    <div class="hint">이벤트 당일 → 7일 후. <b>초과</b> = 종목 변동 − 시장 변동. 시장이 함께 올랐다면 그건 이벤트 효과가 아닙니다.</div>
+  </div>
+
+  <div class="card">
+    <h2>이벤트 달력</h2>
+    <div id="evList"></div>
+    <div class="row">
+      <div><label>날짜</label><input type="date" id="evDate"></div>
+      <div><label>이벤트</label><input id="evName" placeholder="예: 신캐 출시"></div>
+    </div>
+    <button class="btn sm ghost" id="btnEv">이벤트 추가</button>
+    <div class="hint">'자동'은 넥슨 공지 수집분 · 삭제하면 다시 추가되지 않습니다</div>
+  </div>
+
 </section>
 
 <!-- ════════ 골드 탭 ════════ -->
@@ -783,7 +841,7 @@ body.L-mobile section.hide{display:none !important}
         <span style="color:var(--dim)">상위 30 수급</span>
         <span style="color:var(--dn)">매도 <span class="num" id="gxSell">—</span></span>
       </div>
-      <div class="rangeBar" id="gxBar" style="background:var(--surface2); overflow:hidden">
+      <div class="rangeBar" style="background:var(--surface2); overflow:hidden">
         <div id="gxFill" style="height:100%;width:50%;background:var(--up);border-radius:99px"></div>
       </div>
       <div id="gxVerdict" class="heroSig" style="margin-top:10px"></div>
@@ -950,7 +1008,7 @@ body.L-mobile section.hide{display:none !important}
     <div class="hint" style="margin-top:0" id="bkInfo"></div>
     <button class="btn sm ghost" id="btnExport">JSON 내보내기 (자동 복사)</button>
     <button class="btn sm ghost" id="btnCsv">CSV 내보내기 (엑셀용)</button>
-    <button class="btn sm ghost" id="btnGenItems">자동수집 items.json 생성</button>
+    <button class="btn sm ghost" id="btnGenItems">자동수집용 종목 목록 만들기</button>
     <textarea id="ioBox" placeholder="백업/생성 결과가 여기 표시 · 복원 시 붙여넣고 가져오기"></textarea>
     <button class="btn sm" id="btnImport">가져오기 (JSON 복원)</button>
     <button class="btn sm ghost" id="btnReset">초기 데이터로 전체 리셋</button>
@@ -959,8 +1017,13 @@ body.L-mobile section.hide{display:none !important}
 </main>
 
 <div id="toast" class="hide" role="status" aria-live="polite">
-  <span id="toastMsg"></span>
+  <div class="tBody">
+    <div class="tMsg" id="toastMsg"></div>
+    <div class="tSub" id="toastSub">되돌릴 수 있어요</div>
+  </div>
   <button id="toastUndo">되돌리기</button>
+  <button id="toastClose" aria-label="닫기">×</button>
+  <div class="tBar"><i id="toastBar"></i></div>
 </div>
 
 <dialog id="dlgInfo">
@@ -1000,7 +1063,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v9.0 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v9.6 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 추정. 인챈트=컨테이너+match 규칙 */
@@ -1022,6 +1085,32 @@ const CATALOG=[
  {cat:'소모품', name:'게브네의 강화석', apiName:'게브네의 강화석', ok:1},
  {cat:'소모품', name:'귀속 해제 포션', apiName:'귀속 해제 포션', ok:1},
  {cat:'소모품', name:'강화의 비약', apiName:'강화의 비약', ok:1},
+ {cat:'재료', name:'마법가루', apiName:'마법가루'},
+/* 장비 — 같은 넥슨 API를 쓰는 MabiHeroes.gg가 실제로 표시하는 이름들.
+   추정이 아니라 다른 서비스에서 조회되는 게 확인된 이름이므로 우선 후보다.
+   다만 우리 키/시점에서 거래가 없으면 빈 응답일 수 있으니 스캔으로 확인할 것. */
+ {cat:'장비', name:'군주의 흑요석 팔찌', apiName:'군주의 흑요석 팔찌'},
+ {cat:'장비', name:'군주의 빛나는 흑요석 팔찌', apiName:'군주의 빛나는 흑요석 팔찌'},
+ {cat:'장비', name:'군주의 녹슨 흑요석 팔찌', apiName:'군주의 녹슨 흑요석 팔찌'},
+ {cat:'장비', name:'몰락자의 로드', apiName:'몰락자의 로드'},
+ {cat:'장비', name:'몰락자의 빛나는 로드', apiName:'몰락자의 빛나는 로드'},
+ {cat:'장비', name:'몰락자의 녹슨 로드', apiName:'몰락자의 녹슨 로드'},
+ {cat:'장비', name:'찬탈자의 로드', apiName:'찬탈자의 로드'},
+ {cat:'장비', name:'찬탈자의 빛나는 로드', apiName:'찬탈자의 빛나는 로드'},
+ {cat:'장비', name:'찬탈자의 녹슨 로드', apiName:'찬탈자의 녹슨 로드'},
+ {cat:'장비', name:'주시자의 의문의 고양이 조각상', apiName:'주시자의 의문의 고양이 조각상'},
+ {cat:'장비', name:'주시자의 웨어울프의 앞발', apiName:'주시자의 웨어울프의 앞발'},
+ {cat:'장비', name:'주시자의 녹슨 전쟁 여신의 조각상', apiName:'주시자의 녹슨 전쟁 여신의 조각상'},
+ {cat:'장비', name:'주시자의 녹슨 웨어울프의 앞발', apiName:'주시자의 녹슨 웨어울프의 앞발'},
+ {cat:'장비', name:'주시자의 녹슨 서큐버스의 송곳니', apiName:'주시자의 녹슨 서큐버스의 송곳니'},
+ {cat:'장비', name:'상급 의문의 고양이 조각상', apiName:'상급 의문의 고양이 조각상'},
+ {cat:'장비', name:'상급 웨어울프의 앞발', apiName:'상급 웨어울프의 앞발'},
+ {cat:'장비', name:'상급 서큐버스의 송곳니', apiName:'상급 서큐버스의 송곳니'},
+ {cat:'장비', name:'칠흑빛 고양이 목걸이', apiName:'칠흑빛 고양이 목걸이'},
+ {cat:'장비', name:'빛나는 고양이 목걸이', apiName:'빛나는 고양이 목걸이'},
+ {cat:'장비', name:'미지의 황금 팔찌', apiName:'미지의 황금 팔찌'},
+ {cat:'장비', name:'잿빛 황혼 브로치', apiName:'잿빛 황혼 브로치'},
+ {cat:'장비', name:'에리우의 서', apiName:'에리우의 서'},
 /* 아바타·포장 아이템은 넥슨마켓(별도 시장)에서만 거래되어 게임 API에 없다.
    → 아래 '넥슨마켓 목록 붙여넣기'로 기록한다. */
 ].concat(ENCH_PRE.map(n=>({cat:'인챈트(접두)', name:n, apiName:ENCH_NAME, match:n, ok:1})))
@@ -1180,7 +1269,7 @@ function apiNameGuess(name){
 function seed(){
   return {
     settings:{fee:5, apiKey:'', period:'all', lastFetch:0, lastBackup:0,
-      autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar', motion:'auto'},
+      autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar', motion:'auto', curId:''},
     events:[
       {d:'2026-07-16', t:'루미엘·슬링샷 키트 출시'},
       {d:'2026-08-03', t:'휴가 시작'},
@@ -1232,7 +1321,7 @@ function migrateV1(old){
 }
 function ensureDefaults(s){
   s.settings=Object.assign({fee:5, apiKey:'', period:'all', lastFetch:0, lastBackup:0,
-    autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar', motion:'auto'}, s.settings||{});
+    autoRefresh:true, remoteUrl:'', krwMode:false, cmpId:'', layout:'auto', chartBig:false, chartType:'bar', motion:'auto', curId:''}, s.settings||{});
   s.events=s.events||[];
   s.deletedEv=s.deletedEv||[];
   s.goldFlow=s.goldFlow||[];   // [{d,buy,sell}] 골드 수급 추이
@@ -1327,6 +1416,12 @@ const METRIC_DOC={
     c:'(현재 − 최저) ÷ (최고 − 최저) × 100', w:'가격 수준이 아니라 상대 위치다. 100에 가깝다고 비싼 것도, 0에 가깝다고 싼 것도 아니다.'},
   rsi:{t:'과열도 RSI(14)', d:'최근 14회 기록에서 오른 폭과 내린 폭의 비율.',
     c:'100 − 100 ÷ (1 + 상승합 ÷ 하락합)', w:'70 이상 과열, 30 이하 과매도로 통용되지만 기록이 20일 미만이면 표시하지 않는다. 표본이 적으면 의미가 없다.'},
+  median:{t:'중앙값', d:'기간 내 가격을 크기순으로 늘어놓았을 때 한가운데 값. 옆 숫자는 현재가가 중앙값보다 얼마나 높은지/낮은지.',
+    c:'정렬 후 가운데 값 (짝수면 가운데 두 값의 평균)',
+    w:'평균은 극단값 하나에 끌려간다 — 인챈트 응답에는 18골드 같은 이상 체결이 섞인다. 현재가가 중앙값보다 크게 높으면 비싼 구간이다.'},
+  candle:{t:'캔들(봉)', d:'몸통은 그날 시가~종가, 수염은 최저~최고. 빨강은 오른 날, 파랑은 내린 날.',
+    c:'시가 = 그날 첫 시간대 값 · 종가 = 마지막 시간대 값',
+    w:'수염이 서 있는 가로 위치는 그 값이 실제로 발생한 시각이다(보통 캔들차트는 이 정보를 버린다). 시가·종가가 없는 옛 기록은 고저 막대로만 그려진다.'},
   cv:{t:'변동계수', d:'가격 대비 흔들림의 크기. 가격대가 다른 종목끼리 변동성을 비교할 때 쓴다.',
     c:'표준편차 ÷ 평균', w:'값이 클수록 가격 대비 출렁임이 크다. 방향(오름/내림)은 알려주지 않는다.'},
   vol:{t:'하루 변동폭 / 최대 낙폭', d:'일간 등락률의 표준편차와, 고점 대비 가장 크게 빠졌던 폭.',
@@ -1406,11 +1501,18 @@ const indi={
   /* 변동계수 cv = σ/μ (Scholten et al. 2019).
      '가격이 다른 종목끼리 변동성을 비교'하려면 표준편차를 평균으로 나눠야 한다.
      3천만짜리 찬미와 30만짜리 광분을 같은 자로 재는 유일한 방법. */
+  /* 중앙값 — 평균은 극단값 하나에 끌려간다(인챈트 응답에 min_price 18골드 같은 값이 섞임).
+     분포의 가운데를 보려면 중앙값이 정직하다. */
+  median(ps){ if(!ps.length) return null;
+    const a=[...ps].sort((x,y)=>x-y), m=Math.floor(a.length/2);
+    return a.length%2? a[m] : (a[m-1]+a[m])/2; },
   cv(ps){ if(ps.length<2) return null;
     const m=ps.reduce((a,b)=>a+b,0)/ps.length;
     if(!m) return null;
-    const sd=Math.sqrt(ps.reduce((a,b)=>a+(b-m)*(b-m),0)/ps.length);
-    return sd/m; },
+    /* ★표준편차는 반드시 indi.stdev를 쓴다. 예전엔 여기서 따로 계산해
+       모집단(n)을, stdev는 표본(n-1)을 써서 같은 이름의 통계가 두 값을 냈다. */
+    const sd=indi.stdev(ps);
+    return sd==null? null : sd/m; },
   volat(ps){ if(ps.length<3) return null;
     const r=[]; for(let i=1;i<ps.length;i++) r.push((ps[i]-ps[i-1])/ps[i-1]*100);
     return indi.stdev(r); },
@@ -1531,7 +1633,8 @@ function ingestRecords(it, recs, rawJ){
     const p=getPath(r,it.priceKey); if(typeof p!=='number') return;
     let d=today();
     if(dk){ const m=String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if(m) d=m[0]; }
-    if(!byDay[d]) byDay[d]={sum:0,n:0,cnt:0,lo:Infinity,hi:-Infinity,loH:null,hiH:null};
+    if(!byDay[d]) byDay[d]={sum:0,n:0,cnt:0,lo:Infinity,hi:-Infinity,loH:null,hiH:null,
+                             o:null,c:null,oT:null,cT:null,vals:[]};
     byDay[d].sum+=p; byDay[d].n++;
     byDay[d].cnt+= (ck&&typeof r[ck]==='number')? r[ck]:1;
     /* ★이윤선(2006) '시간흐름을 반영하는 캔들스틱': 전통 캔들스틱은 고가·저가가
@@ -1539,6 +1642,12 @@ function ingestRecords(it, recs, rawJ){
        우리 응답은 시간당 스냅샷이므로 발생 시각(0~23)을 함께 남긴다. */
     let hh=null;
     if(dk){ const m=String(r[dk]).match(/T(\d{2}):/); if(m) hh=+m[1]; }
+    /* 시가·종가: 그날 가장 이른/늦은 시간대의 값. 시간 단위 스냅샷이 있으므로 계산 가능하다.
+       중앙값 계산을 위해 그날의 시간별 값도 모아둔다(평균은 극단값에 끌려간다). */
+    const ts=dk? String(r[dk]) : '';
+    if(byDay[d].oT===null||ts<byDay[d].oT){ byDay[d].oT=ts; byDay[d].o=p; }
+    if(byDay[d].cT===null||ts>byDay[d].cT){ byDay[d].cT=ts; byDay[d].c=p; }
+    byDay[d].vals.push(p);
     if(typeof r.min_price==='number'&&r.min_price>0&&r.min_price<byDay[d].lo){
       byDay[d].lo=r.min_price; byDay[d].loH=hh; }
     if(typeof r.max_price==='number'&&r.max_price>byDay[d].hi){
@@ -1556,6 +1665,8 @@ function ingestRecords(it, recs, rawJ){
       if(byDay[d].loH!=null) ent.loH=byDay[d].loH; }
     if(byDay[d].hi>-Infinity){ ent.hi=Math.round(byDay[d].hi*sc);
       if(byDay[d].hiH!=null) ent.hiH=byDay[d].hiH; }
+    if(byDay[d].o!=null) ent.o=Math.round(byDay[d].o*sc);
+    if(byDay[d].c!=null) ent.c=Math.round(byDay[d].c*sc);
     const idx=it.entries.findIndex(e=>e.d===d);
     if(idx>-1) it.entries[idx]=ent; else it.entries.push(ent);
     n++;
@@ -1675,7 +1786,18 @@ async function mergeRemote(){
         if(!e||!e.d||typeof e.p!=='number') return;
         const ent={d:e.d, p:Math.round(e.p), s:e.s==null?null:e.s, m:'', src:'api'};
         const idx=it.entries.findIndex(x=>x.d===e.d);
-        if(idx>-1){ if(it.entries[idx].src!=='man') it.entries[idx]=ent; }  // 수동 보정만 보호
+        if(idx>-1){
+          const cur0=it.entries[idx];
+          if(cur0.src!=='man'){
+            /* 통째로 바꾸면 한쪽에만 있는 정보가 사라진다(예: 원격에 loH/hiH가 없던 시절
+               앱이 직접 받아둔 발생 시각이 지워졌다). 들어온 값에 없는 필드는 남긴다. */
+            const merged=Object.assign({}, cur0, ent);
+            ['lo','hi','loH','hiH','o','c'].forEach(k=>{
+              if(ent[k]==null && cur0[k]!=null) merged[k]=cur0[k];
+            });
+            it.entries[idx]=merged;
+          }
+        }
         else { it.entries.push(ent); tot++; }
       });
     });
@@ -1929,10 +2051,19 @@ function renderGold(){
       staleEl.innerHTML='<div class="heroSig"><div>환율 기록이 없습니다. 아래에서 1천만골당 원화값을 기록하세요.</div></div>'; }
   }
 
+  /* 이번에 조회한 값이 없으면 마지막으로 기록된 수급을 쓴다.
+     예전엔 조회 전이면 무조건 50:50을 보여줘, 저장된 이력이 있는데도
+     '균형'이라고 잘못 말했다. */
   const sum=a=>a? a.reduce((x,y)=>x+(y.v||0),0):0;
-  const B=sum(goldTop.buy), Sv=sum(goldTop.sell), T=B+Sv;
-  document.getElementById('gxBuy').textContent= goldTop.buy? fmtG(B):'—';
-  document.getElementById('gxSell').textContent= goldTop.sell? fmtG(Sv):'—';
+  let B=sum(goldTop.buy), Sv=sum(goldTop.sell), fromHist=false;
+  if(!(B+Sv)){
+    const fl=(S.goldFlow||[]);
+    const lastF=fl.length? fl[fl.length-1] : null;
+    if(lastF && (lastF.buy+lastF.sell)){ B=lastF.buy; Sv=lastF.sell; fromHist=true; }
+  }
+  const T=B+Sv;
+  document.getElementById('gxBuy').textContent= T? fmtG(B):'—';
+  document.getElementById('gxSell').textContent= T? fmtG(Sv):'—';
   const ratio= T? B/T*100 : 50;
   document.getElementById('gxFill').style.width=ratio.toFixed(1)+'%';
   const vd=document.getElementById('gxVerdict');
@@ -1954,6 +2085,7 @@ function renderGold(){
     const topShare=(arr,tot)=> (arr&&arr.length&&tot)? Math.round(arr[0].v/tot*100):0;
     const conc='큰손 집중도 — 매수 1위가 전체의 '+topShare(goldTop.buy,B)+'%, 매도 1위가 '+topShare(goldTop.sell,Sv)+'%';
     vd.innerHTML='<div class="'+cls+'">'+msg+'</div><div>'+mine+'</div>'
+      +(fromHist?'<div class="sigNote">마지막으로 기록된 수급입니다. 새로고침하면 최신값으로 갱신돼요.</div>':'')
       +'<div>'+conc+'. 한 명 비중이 크면 그 사람이 멈추는 순간 방향도 바뀝니다.</div>'
       +'<div>상위 30명 합계라 전체 시장이 아니라 <b>큰손들의 방향</b>이에요.</div>';
   }
@@ -2201,75 +2333,11 @@ async function previewFetch(){
    가격줄(숫자~)을 기준으로 위에서 이름, 아래에서 매물수를 집는다.
    ※ 넥슨마켓은 인게임 거래소와 다른 시장이라 API로는 못 받는다. */
 const MKT_CAT=/^(재화|아바타|장비|소모품|기타|캐릭터|계정)$/;
-function parseMarket(txt){
-  const L=txt.split('\n').map(x=>x.trim());
-  const out=[];
-  for(let i=0;i<L.length;i++){
-    const m=L[i].match(/^([\d,]+)\s*~/);
-    if(!m) continue;
-    const price=parseInt(m[1].replace(/,/g,''),10);
-    if(!price) continue;
-    let name=null;
-    for(let j=i-1;j>=0&&j>=i-4;j--){
-      if(!L[j]||MKT_CAT.test(L[j])) continue;
-      name=L[j]; break;
-    }
-    if(!name) continue;
-    let cnt=null;
-    for(let k=i+1;k<=i+4&&k<L.length;k++){
-      if(!L[k]) continue;
-      if(/^\d+$/.test(L[k])){ cnt=+L[k]; break; }
-      break;
-    }
-    out.push({name, price, cnt});
-  }
-  return out;
-}
-function mktRecord(row){
-  let it=S.items.find(x=>x.name===row.name);
-  if(!it){
-    it={id:'i'+Date.now()+Math.floor(Math.random()*99), name:row.name, apiName:'', match:null,
-      unit:'gold', scale:1, img:'', target:null, alertHigh:null, targetSupply:null,
-      priceKey:null, entries:[]};
-    S.items.push(it);
-  }
-  const d=today();
-  const e={d, p:row.price, s:row.cnt==null?null:row.cnt, m:'넥슨마켓 최저가', src:'man'};
-  const idx=it.entries.findIndex(x=>x.d===d);
-  if(idx>-1) it.entries[idx]=e; else it.entries.push(e);
-  return it;
-}
-function renderMarket(rows){
-  const box=document.getElementById('mktOut');
-  if(!rows.length){ box.innerHTML='<div class="warn" style="font-size:12.5px">목록을 못 읽었어요. 페이지 전체를 복사했는지 확인해주세요.</div>'; return; }
-  let html='<div class="hint">'+rows.length+'개 발견 · ★를 누르면 관심종목으로 기록돼요(오늘 날짜, 최저가·매물수)</div>'
-    +'<table><tr><th></th><th>아이템</th><th>최저가</th><th>매물</th></tr>';
-  rows.forEach((r,i)=>{
-    const has=S.items.some(x=>x.name===r.name);
-    html+='<tr><td style="width:30px"><button class="star'+(has?' on':'')+'" data-m="'+i+'">'+(has?'★':'☆')+'</button></td>'
-      +'<td class="bnm" style="font-size:12.5px">'+r.name+'</td>'
-      +'<td class="num">'+fmtG(r.price)+'</td>'
-      +'<td class="num">'+(r.cnt==null?'—':r.cnt)+'</td></tr>';
-  });
-  html+='</table>';
-  box.innerHTML=html;
-  box.querySelectorAll('.star').forEach(b=>b.onclick=()=>{
-    const r=rows[+b.dataset.m];
-    const it=mktRecord(r);
-    cur=it.id; saveData(); renderAll();
-    renderMarket(rows);
-  });
-  const all=document.createElement('button');
-  all.className='btn sm'; all.textContent='전체 기록 ('+rows.length+'개)';
-  all.onclick=()=>confirmDlg('전체 기록', rows.length+'개를 모두 관심종목으로 기록할까요? 목록이 길면 화면이 복잡해집니다.',()=>{
-    rows.forEach(mktRecord); saveData(); renderAll(); renderMarket(rows);
-  });
-  box.appendChild(all);
-}
-
 /* 이름 검증: 400/200 차이로 유효 여부 판정. 브라우저에서 직접 호출 가능 확인됨 */
+let probeOk=[];   // 검증을 통과한 이름 (그대로 담을 수 있게 보관)
 async function probeNames(){
   const box=document.getElementById('probeOut');
+  probeOk=[];
   const list=document.getElementById('probeIn').value.split('\n')
     .map(x=>x.trim()).filter(Boolean);
   if(!list.length){ box.innerHTML='<span class="warn">후보 이름을 한 줄에 하나씩 입력하세요 넣으세요.</span>'; return; }
@@ -2280,6 +2348,7 @@ async function probeNames(){
     try{
       const j=await fetchPage(nm,null);
       const n=findRecords(j).length;
+      probeOk.push(nm);
       out.push(n
         ? '<span class="okC">사용 가능</span> '+nm+' <span style="color:var(--dim)">('+n+'건)</span>'
         : '<span class="goldC">이름만 유효</span> '+nm+' <span style="color:var(--dim)">(24h 거래 10건 미만)</span>');
@@ -2291,7 +2360,27 @@ async function probeNames(){
     await sleep(CONFIG.SCAN_DELAY);
   }
   box.innerHTML=out.join('<br>');
+  const add=document.getElementById('btnProbeAdd');
+  add.classList.toggle('hide', probeOk.length===0);
+  add.textContent='통과한 '+probeOk.length+'개 관심종목에 담기';
   btn.disabled=false;
+}
+/* 검증을 통과한 이름을 그대로 관심종목으로 추가한다.
+   이름을 손으로 옮겨 적다 오타가 나면 다시 400이 나므로 복사 과정을 없앤다. */
+function addProbed(){
+  if(!probeOk.length) return;
+  let n=0;
+  probeOk.forEach(nm=>{
+    if(S.items.some(x=>x.apiName===nm&&!x.match)) return;
+    S.items.push({id:'i'+Date.now()+Math.random().toString(36).slice(2,6),
+      name:nm, apiName:nm, match:null, unit:'gold', scale:1, img:'',
+      target:null, alertHigh:null, targetSupply:null, priceKey:null, entries:[]});
+    n++;
+  });
+  saveData(); renderAll();
+  document.getElementById('probeOut').innerHTML=
+    '<span class="okC">'+n+'개 담았습니다.</span> 시세 탭에서 새로고침하면 값이 들어옵니다.';
+  document.getElementById('btnProbeAdd').classList.add('hide');
 }
 /* ══ 넥슨마켓 목록 파서 ══
    붙여넣기 형태(줄바꿈 기준):
@@ -2470,20 +2559,6 @@ function renderHeaderMeta(){
    · 회색 밴드 = 정상 범위(여기선 ±1 표준편차). 밴드 밖으로 나가면 이례적.
    · 마지막 값 점은 옆 숫자와 같은 색으로 묶는다("색 강조로 둘을 연결")
    · 선을 가늘게, 대비를 낮춰 '광학적 잡음'을 줄인다 */
-function sparkPath(ps,W,H){
-  if(ps.length<2) return '';
-  const mn=Math.min(...ps), mx=Math.max(...ps);
-  let d='';
-  ps.forEach((p,i)=>{ const x=i/(ps.length-1)*W;
-    const y= mx>mn? H-1.5-(p-mn)/(mx-mn)*(H-3) : H/2;
-    d+=(d?' L':'M')+x.toFixed(1)+' '+y.toFixed(1); });
-  return d;
-}
-/* amp: 이 종목의 흔들림이 목록 전체에서 차지하는 상대 크기(0~1).
-   ★Lowe(1999, 2004): 학습자는 '주제적으로 중요한 것'이 아니라 '지각적으로
-   두드러진 것'을 추출한다. 스파크라인을 각자 최저~최고로 정규화하면 0.5%
-   흔들린 종목이 40% 폭등한 종목과 똑같이 요동쳐 보인다 — 두드러짐과 중요도가
-   어긋난다. 그래서 진폭을 실제 변동성 비율만큼만 준다(안정적인 종목은 납작하게). */
 function sparkSVG(ps, col, amp){
   const W=62,H=12;
   if(ps.length<2) return '<span class="spark"></span>';
@@ -2573,7 +2648,9 @@ function renderBoard(){
   box.querySelectorAll('[data-id]').forEach(r=>r.onclick=()=>{
     if(r.dataset.id==='__more'){ wlLimit+=30; renderBoard(); return; }
     if(r.dataset.id==='__add'){ switchTab('browse'); return; }
-    cur=r.dataset.id; selIdx=null; renderAll();
+    cur=r.dataset.id; selIdx=null; histLimit=40;
+    S.settings.curId=cur; saveData();
+    renderAll();
     window.scrollTo({top:0, behavior:scrollBehavior()});
   });
 }
@@ -2591,9 +2668,8 @@ function renderChart(){
     .map(x=>'<option value="'+x.id+'" '+(S.settings.cmpId===x.id?'selected':'')+'>vs '+x.name+'</option>').join('');
   document.getElementById('krwBtn').classList.toggle('on', !!S.settings.krwMode);
   document.getElementById('bigBtn').classList.toggle('on', !!S.settings.chartBig);
-  const tb=document.getElementById('typeBtn');
-  tb.textContent = S.settings.chartType==='bar' ? '봉' : '선';
-  tb.classList.toggle('on', S.settings.chartType==='bar');
+  document.querySelectorAll('.ctBtn').forEach(b=>
+    b.classList.toggle('on', b.dataset.ct===S.settings.chartType));
   if(!it){ wrap.innerHTML='<div class="empty">관심종목을 먼저 추가하세요.</div>'; renderLegend('raw'); return; }
   const cmp= S.settings.cmpId? S.items.find(x=>x.id===S.settings.cmpId):null;
   const mode= cmp? 'cmp' : (S.settings.krwMode&&it.unit==='gold'&&goolbiRate()!=null? 'krw':'raw');
@@ -2666,7 +2742,11 @@ function renderChart(){
   /* 차트 종류: 'bar'(고저+평균 눈금) / 'line'(추세선).
      하루 안의 변동폭이 궁금하면 봉, 긴 흐름이 궁금하면 선 — 목적이 형식을 정한다.
      비교(cmp) 모드는 %정규화라 봉이 성립하지 않으므로 항상 선. */
-  const isBar = (S.settings.chartType==='bar') && mode!=='cmp' && !!loArr
+  /* 점이 많아지면 캔들 폭이 2px 아래로 내려가 읽히지 않는다(180일치 = 폰에서 2px).
+     그럴 땐 형식을 선으로 낮춘다 — 가독성과 렌더 비용을 동시에 해결한다. */
+  const density=(W-(wide?90:74)-(wide?16:12))/Math.max(es.length,1);
+  const tooDense = density < 3.2;
+  const isBar = (S.settings.chartType==='bar') && mode!=='cmp' && !!loArr && !tooDense
                 && es.some((e,i)=>loArr[i]!=null&&hiArr[i]!=null);
   let g='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="touch-action:pan-y">';
   // 가로 눈금 5줄 + 우측 가격 라벨
@@ -2708,7 +2788,7 @@ function renderChart(){
         +'<text x="'+(W-padR+6)+'" y="'+(y+3.5)+'" fill="#42C98D" font-size="'+FS2+'">알림</text>'; }
     /* 일별 고저 막대. 봉 모드에서는 평균 위치에 가로 눈금을 더해
        'OHLC 바' 형태가 된다 — 하루 안의 범위와 대표값을 함께 읽는 형식. */
-    if(loArr){
+    if(loArr && !tooDense){
       /* ★시간흐름 반영(이윤선 2006): 하루 칸의 가로폭을 24시간으로 보고,
          고가·저가 수염을 '실제 발생한 시각' 위치에 세운다.
          칸이 좁아 시각 구분이 무의미해지면(dayW<7px) 가운데로 되돌린다. */
@@ -2716,21 +2796,31 @@ function renderChart(){
       const useTime = isBar && dayW>=7;
       const bodyW=Math.max(3,Math.min(wide?11:7,dayW*0.42));
       const atH=(x,h)=> (h==null||!useTime)? x : (x-bodyW+ (h/23)*(bodyW*2));
+      /* 시가·종가가 있으면 진짜 캔들(몸통=시가~종가), 없으면 평균 눈금만.
+         수염은 실제 발생 시각 위치에 세운다 — 일반 캔들차트가 버리는 정보다. */
+      const conv=v=> (mode==='krw')? v : v;   // o/c는 이미 저장 시 scale 반영됨
       es.forEach((e,i)=>{
         const x=xi(i), yv=Y(seriesA[i].v);
+        const hasOC = isBar && e.o!=null && e.c!=null && mode==='raw';
         const hasR = loArr[i]!=null&&hiArr[i]!=null&&hiArr[i]>loArr[i];
+        const up = hasOC? (e.c>=e.o) : null;
+        const col = hasOC? (up? '#F4645F':'#5A93F0') : '#40506E';
         if(hasR){
           if(useTime){
             const xh=atH(x,e.hiH), xl=atH(x,e.loH);
-            // 고가 수염: 평균선 → 고가 (발생 시각 위치)
-            g+='<line x1="'+xh.toFixed(1)+'" y1="'+yv.toFixed(1)+'" x2="'+xh.toFixed(1)+'" y2="'+Y(hiArr[i]).toFixed(1)+'" stroke="#40506E" stroke-width="2" stroke-linecap="round"/>';
-            // 저가 수염: 평균선 → 저가 (발생 시각 위치)
-            g+='<line x1="'+xl.toFixed(1)+'" y1="'+yv.toFixed(1)+'" x2="'+xl.toFixed(1)+'" y2="'+Y(loArr[i]).toFixed(1)+'" stroke="#40506E" stroke-width="2" stroke-linecap="round"/>';
+            const anchor = hasOC? Y((e.o+e.c)/2) : yv;
+            g+='<line x1="'+xh.toFixed(1)+'" y1="'+anchor.toFixed(1)+'" x2="'+xh.toFixed(1)+'" y2="'+Y(hiArr[i]).toFixed(1)+'" stroke="'+(hasOC?col:'#40506E')+'" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>';
+            g+='<line x1="'+xl.toFixed(1)+'" y1="'+anchor.toFixed(1)+'" x2="'+xl.toFixed(1)+'" y2="'+Y(loArr[i]).toFixed(1)+'" stroke="'+(hasOC?col:'#40506E')+'" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>';
           } else {
-            g+='<line x1="'+x.toFixed(1)+'" y1="'+Y(hiArr[i]).toFixed(1)+'" x2="'+x.toFixed(1)+'" y2="'+Y(loArr[i]).toFixed(1)+'" stroke="#40506E" stroke-width="'+(isBar?2.6:2.2)+'" stroke-linecap="round"/>';
+            g+='<line x1="'+x.toFixed(1)+'" y1="'+Y(hiArr[i]).toFixed(1)+'" x2="'+x.toFixed(1)+'" y2="'+Y(loArr[i]).toFixed(1)+'" stroke="'+(hasOC?col:'#40506E')+'" stroke-width="'+(isBar?2:2.2)+'" stroke-linecap="round"/>';
           }
         }
-        if(isBar){
+        if(hasOC){
+          const yo=Y(e.o), yc=Y(e.c);
+          const top=Math.min(yo,yc), h=Math.max(1.2, Math.abs(yc-yo));
+          g+='<rect x="'+(x-bodyW).toFixed(1)+'" y="'+top.toFixed(1)+'" width="'+(bodyW*2).toFixed(1)
+            +'" height="'+h.toFixed(1)+'" fill="'+(up?col:'none')+'" stroke="'+col+'" stroke-width="1.2"/>';
+        } else if(isBar){
           g+='<line x1="'+(x-bodyW).toFixed(1)+'" y1="'+yv.toFixed(1)+'" x2="'+(x+bodyW).toFixed(1)+'" y2="'+yv.toFixed(1)+'" stroke="#E0A63C" stroke-width="1.8"/>';
         }
       });
@@ -2832,6 +2922,7 @@ function renderChart(){
     const prevP= i>0? es[i-1].p:null;
     tip.innerHTML='<b>'+e.d+'</b> · <span class="num">'+fmt(it,e.p)+'</span>'+extra
       +(prevP!=null? ' · 전일 '+fmtPct(pct(e.p,prevP)):'')
+      +(e.o!=null&&e.c!=null? '<br>시가 <span class="num">'+fmt(it,e.o)+'</span> · 종가 <span class="num">'+fmt(it,e.c)+'</span>':'')
       +(e.lo!=null&&e.hi!=null? '<br>일중 <span class="num">'+fmt(it,e.lo)+' ~ '+fmt(it,e.hi)+'</span>'
          +((e.loH!=null||e.hiH!=null)? ' <span style="color:var(--dim)">(저 '
             +(e.loH!=null?e.loH+'시':'?')+' · 고 '+(e.hiH!=null?e.hiH+'시':'?')+')</span>':'') :'')
@@ -2841,9 +2932,9 @@ function renderChart(){
   };
   document.getElementById('evLegend').innerHTML=
     evs.map((e,i)=>'<span>'+(i+1)+'. '+e.d.slice(5)+' '+e.t+'</span>').join(' &nbsp; ');
-  renderLegend(mode,cmp);
+  renderLegend(mode,cmp,tooDense);
 }
-function renderLegend(mode,cmp){
+function renderLegend(mode,cmp,tooDense){
   const box=document.getElementById('legendBox');
   if(mode==='cmp'){
     box.innerHTML='<span><i style="background:var(--gold)"></i>'+(item()?item().name:'')+'</span>'
@@ -2858,8 +2949,14 @@ function renderLegend(mode,cmp){
       +'<span><i style="background:var(--ma2)"></i>MA20</span>'
       +'<span><i style="background:rgba(107,155,255,.5)"></i>볼린저</span>'
       +'<span data-doc="range" style="cursor:pointer"><i style="background:#40506E"></i>일중 고저 <span class="docQ">?</span></span>'
-      +(S.settings.chartType==='bar'?'<span><i style="background:var(--gold)"></i>일 평균</span>'
-        +'<span style="color:var(--dim)">수염 위치 = 고가·저가가 난 시각</span>':'')
+      +(S.settings.chartType==='bar'&&tooDense
+        ? '<span style="color:var(--dim)">기간이 길어 선으로 표시 — 기간을 좁히면 캔들로 보여요</span>'
+        : '')
+      +(S.settings.chartType==='bar'&&!tooDense
+        ? '<span data-doc="candle" style="cursor:pointer"><i style="background:var(--up)"></i>오른 날 '
+          +'<i style="background:var(--dn);margin-left:6px"></i>내린 날 <span class="docQ">?</span></span>'
+          +'<span style="color:var(--dim)">몸통 = 시가~종가 · 수염 위치 = 발생 시각</span>'
+        : '')
       +'<span><i style="background:#33415C"></i>거래된 시간</span>'
       +'<span><i style="border-top:2px dashed var(--up);height:1px"></i>목표</span>'
       +'<span><i style="border-top:2px dashed var(--ok);height:1px"></i>알림</span>';
@@ -2929,6 +3026,11 @@ function renderStats(){
       return c!=null? '<span class="num">'+(Math.round(c*1000)/1000)+'</span> <span style="color:var(--dim);font-size:11px">종목 간 비교</span>':'—'; })(), 'cv'],
     ['기간 고가','<span class="num">'+fmt(it,max)+'</span>'],
     ['기간 저가','<span class="num">'+fmt(it,min)+'</span>'],
+    ['중앙값', (function(){ const md=indi.median(ps);
+      if(md==null) return '—';
+      const gap=pct(last.p, md);
+      return '<span class="num">'+fmt(it,md)+'</span> <span style="color:var(--dim);font-size:11px">현재 '
+        +(gap>0?'+':'')+(Math.round(gap*10)/10)+'%</span>'; })(), 'median'],
     ['하루 변동폭 / 최대 낙폭', (vol!=null?'±'+(Math.round(vol*10)/10)+'%':'—')
       +' / '+(mdd!=null?'<span class="dnC">'+(Math.round(mdd*10)/10)+'%</span>':'—'), 'vol'],
   ];
@@ -3267,11 +3369,16 @@ function renderEventAnalysis(){
 }
 
 /* ═══════ 렌더: 기록 ═══════ */
+/* 기록이 수백 줄이 되면 표를 통째로 그리는 비용이 커진다(실측 140ms).
+   최근 것부터 일부만 그리고, 필요할 때 늘린다. */
+let histLimit=40;
 function renderHist(){
   const it=item(); const t=document.getElementById('histTable');
   if(!it){t.innerHTML='';return;}
-  const es=sortedEntries(it).slice().reverse();
-  if(!es.length){ t.innerHTML='<tr><td class="hint">기록 없음</td></tr>'; return; }
+  const all=sortedEntries(it).slice().reverse();
+  const more=document.getElementById('histMore');
+  if(!all.length){ t.innerHTML='<tr><td class="hint">기록 없음</td></tr>'; if(more) more.innerHTML=''; return; }
+  const es=all.slice(0, histLimit);
   let html='<tr><th>날짜</th><th class="num">가격</th><th class="num">거래시간</th><th>출처</th><th></th></tr>';
   es.forEach(e=>{
     html+='<tr><td class="num">'+e.d.slice(2)+'</td>'
@@ -3494,17 +3601,29 @@ function scrollBehavior(){ return reducedMotion()? 'auto':'smooth'; }
 function applyMotion(){
   document.body.classList.toggle('M-reduce', reducedMotion());
   const b=document.getElementById('motionBtn');
-  if(b) b.textContent='동작: '+(S.settings.motion==='reduce'?'줄임':'자동');
+  if(b) b.textContent='움직임 '+(S.settings.motion==='reduce'?'끔':'켬');
 }
 function applyLayout(){
   document.body.className='L-'+(S.settings.layout||'auto');
   document.getElementById('layoutBtn').textContent=
-    '화면:'+({auto:'자동',mobile:'모바일',desktop:'PC'}[S.settings.layout]||'자동');
+    '배치 '+({auto:'자동',mobile:'모바일',desktop:'PC'}[S.settings.layout]||'자동');
+}
+/* 보이지 않는 탭까지 그리면 종목을 누를 때마다 헛일이 쌓인다.
+   탭을 열 때 switchTab이 해당 렌더를 호출하므로 여기서는 건너뛴다. */
+function tabOn(id){
+  const el=document.getElementById('tab-'+id);
+  return !!el && !el.classList.contains('hide');
 }
 function renderAll(){
   renderHeaderMeta(); renderBoard(); renderChart(); renderStats();
-  renderEventAnalysis(); renderHist(); renderSim(); renderItemList(); renderEvents();
-  renderGold(); renderGoldChart(); renderMarket(); renderCorr(); renderBrowse(); renderOnboard();
+  if(tabOn('analysis')){ renderEventAnalysis(); renderEvents(); }
+  renderHist();
+  if(tabOn('sim')) renderSim();
+  if(tabOn('data')) renderItemList();
+  if(tabOn('gold')){ renderGold(); renderGoldChart(); }
+  if(tabOn('analysis')){ renderMarket(); renderCorr(); }
+  if(tabOn('browse')){ renderBrowse(); renderNxm(); }
+  renderOnboard();
   document.getElementById('apiKey').value=S.settings.apiKey||'';
   document.getElementById('feeRate').value=S.settings.fee;
   document.getElementById('autoSel').value=S.settings.autoRefresh?'1':'0';
@@ -3523,16 +3642,36 @@ async function copyText(el){
    스냅샷은 메모리에만 두므로(새로고침하면 사라짐) 저장 용량에 영향이 없다. */
 let undoSnap=null, toastT=null;
 function snapshot(){ try{ return JSON.stringify(S); }catch(e){ return null; } }
+const TOAST_MS=8000;
+function hideToast(){
+  const t=document.getElementById('toast');
+  if(t) t.classList.add('hide');
+  undoSnap=null; clearTimeout(toastT);
+}
 function showToast(msg, snap){
   const t=document.getElementById('toast'), m=document.getElementById('toastMsg'),
-        u=document.getElementById('toastUndo');
+        sub=document.getElementById('toastSub'), u=document.getElementById('toastUndo'),
+        bar=document.getElementById('toastBar');
   if(!t) return;
   undoSnap=snap||null;
   m.textContent=msg;
-  u.style.display= undoSnap? '':'none';
+  const can=!!undoSnap;
+  sub.textContent= can? Math.round(TOAST_MS/1000)+'초 안에 되돌릴 수 있어요' : '';
+  sub.style.display= can? '':'none';
+  u.style.display= can? '':'none';
   t.classList.remove('hide');
+  /* 남은 시간을 막대로 보여준다 — 언제 사라지는지 모르면 불안하다 */
+  if(bar){
+    bar.style.transition='none'; bar.style.transform='scaleX(1)';
+    if(can&&!reducedMotion()){
+      void bar.offsetWidth;
+      bar.style.transition='transform '+TOAST_MS+'ms linear';
+      bar.style.transform='scaleX(0)';
+    }
+    bar.parentElement.style.display= can? '':'none';
+  }
   clearTimeout(toastT);
-  toastT=setTimeout(()=>{ t.classList.add('hide'); undoSnap=null; }, 8000);
+  toastT=setTimeout(hideToast, can? TOAST_MS : 3200);
 }
 function doUndo(){
   if(!undoSnap) return;
@@ -3541,7 +3680,7 @@ function doUndo(){
     const list=S.items.filter(i=>i.unit!=='krw');
     cur= list.length? list[0].id : null;
     undoSnap=null;
-    document.getElementById('toast').classList.add('hide');
+    hideToast();
     applyLayout(); saveData(); renderAll();
     showToast('되돌렸습니다');
   }catch(e){ alert('되돌리기 실패'); }
@@ -3570,9 +3709,13 @@ function confirmDlg(title,body,onYes){
 }
 function switchTab(id){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===id));
-  ['chart','browse','gold','sim','data'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hide',t!==id));
+  ['chart','browse','analysis','gold','sim','data'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hide',t!==id));
   if(id==='browse') renderBrowse();
   if(id==='gold') renderGoldChart();
+  if(id==='analysis'){ renderMarket(); renderCorr(); renderEventAnalysis(); renderEvents(); }
+  if(id==='sim') renderSim();
+  if(id==='data') renderItemList();
+  if(id==='gold'){ renderGold(); renderGoldChart(); }
 }
 
 /* ═══════ 바인딩 ═══════ */
@@ -3591,6 +3734,7 @@ document.getElementById('btnDeep').onclick=()=>{ FORCE_DEEP=true; refreshAll(); 
 document.getElementById('btnScan').onclick=scanAll;
 document.getElementById('btnGold').onclick=fetchGoldTop;
 document.getElementById('toastUndo').onclick=doUndo;
+document.getElementById('toastClose').onclick=hideToast;
 document.getElementById('docClose').onclick=()=>document.getElementById('dlgInfo').close();
 document.getElementById('btnGxAdd').onclick=()=>{
   const g=goolbiItem();
@@ -3617,6 +3761,7 @@ document.querySelectorAll('#sortSeg button').forEach(b=>
   b.onclick=()=>{ browseSort=b.dataset.s; renderBrowse(); });
 document.getElementById('btnPrevFetch').onclick=previewFetch;
 document.getElementById('btnProbe').onclick=probeNames;
+document.getElementById('btnProbeAdd').onclick=addProbed;
 document.getElementById('btnNxm').onclick=applyNxm;
 document.getElementById('nxmQ').oninput=renderNxm;
 document.getElementById('btnNxmAll').onclick=nxmFollowAll;
@@ -3625,7 +3770,6 @@ document.getElementById('btnNxmMoves').onclick=()=>{
   document.getElementById('btnNxmMoves').textContent= nxmMovesOnly?'전체 보기':'변동 있는 것만 보기';
   renderNxm();
 };
-document.getElementById('btnMkt').onclick=()=>renderMarket(parseMarket(document.getElementById('mktIn').value));
 document.getElementById('btnFollow').onclick=()=>toggleFollow(prevSel);
 document.getElementById('btnBuy').onclick=()=>trade('buy');
 document.getElementById('btnSell').onclick=()=>trade('sell');
@@ -3648,9 +3792,8 @@ document.querySelectorAll('#periodSeg button').forEach(b=>
 document.getElementById('cmpSel').onchange=e=>{ S.settings.cmpId=e.target.value; selIdx=null; saveData(); renderChart(); };
 document.getElementById('krwBtn').onclick=()=>{ S.settings.krwMode=!S.settings.krwMode; selIdx=null; saveData(); renderChart(); };
 document.getElementById('bigBtn').onclick=()=>{ S.settings.chartBig=!S.settings.chartBig; saveData(); renderChart(); };
-document.getElementById('typeBtn').onclick=()=>{
-  S.settings.chartType = S.settings.chartType==='bar' ? 'line' : 'bar';
-  selIdx=null; saveData(); renderChart(); };
+document.querySelectorAll('.ctBtn').forEach(b=>b.onclick=()=>{
+  S.settings.chartType=b.dataset.ct; selIdx=null; saveData(); renderChart(); });
 /* 창 크기가 바뀌면 viewBox 비율이 달라지므로 다시 그린다(디바운스) */
 let rzT=null;
 window.addEventListener('resize',()=>{ clearTimeout(rzT);
@@ -3826,8 +3969,10 @@ document.getElementById('btnPull').onclick=()=>gistPull(false);
 
 /* ═══════ 부팅 ═══════ */
 function bootUI(){
-  const first=S.items.filter(i=>i.unit!=='krw')[0];
-  cur= first? first.id : null;
+  /* 마지막으로 보던 종목으로 복귀. 열 때마다 첫 종목으로 돌아가면 매번 다시 찾아야 한다. */
+  const list0=S.items.filter(i=>i.unit!=='krw');
+  cur = (S.settings.curId && list0.some(i=>i.id===S.settings.curId))
+        ? S.settings.curId : (list0[0]? list0[0].id : null);
   document.getElementById('mDate').value=today();
   document.getElementById('gxDate').value=today();
   document.getElementById('evDate').value=today();
