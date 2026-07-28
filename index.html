@@ -52,6 +52,11 @@
   · 지표는 지점마다 재계산하지 말고 누적합 시리즈(maSeries/bollSeries)를 쓸 것.
   · DOM/SVG 요소 수는 데이터 양에 비례해 늘리지 말 것(터치영역·목록 행 상한).
   · 기능을 추가하면 perf.mjs로 재측정할 것. 폰은 이 측정치의 3~5배로 보면 된다.
+■ 저장 용량: 기록이 쌓이는 도구라 브라우저 한계(약 5MB)가 실재하는 위험이다.
+  실측 entry 1건 ≈ 128바이트 → 70종목 × 1년 ≈ 3.1MB, 90종목 × 2년 ≈ 8MB(초과).
+  대응 셋: (1) 기본값 필드 생략 저장(saveReplacer, 약 15% 절감)
+  (2) 75%부터 배너 경고 (3) 저장 실패 시 즉시 내보내기 유도.
+  ※ 저장을 압축했으므로 읽는 쪽은 undefined를 기본값으로 다뤄야 한다.
 ■ ★시간대: API의 date_update는 UTC0다. 반드시 kstOf()를 거쳐 한국시간으로
   바꿔서 날짜 버킷과 시각 표시에 쓸 것. 문자열을 그대로 slice 하면
   하루 경계가 한국 오전 9시가 되고, 표시 시각이 9시간 어긋난다.
@@ -605,7 +610,7 @@ body.L-mobile section.hide{display:none !important}
       <button id="motionBtn" aria-label="화면 움직임 줄이기">움직임 켬</button>
     </div>
   </div>
-  <div class="sub" id="subLine">v9.8 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v9.9 · 2026-07-25 — 로딩 중…</div>
 </header>
 <nav>
   <button class="on" data-tab="chart">시세</button>
@@ -685,6 +690,8 @@ body.L-mobile section.hide{display:none !important}
     <div id="obSteps"></div>
 
   </div>
+
+  <div id="quotaBar" class="banner hide" style="border-left-color:var(--up)"></div>
 
   <div class="card">
     <h2>수집 상태 <button id="btnRefresh" class="reLink">다시 시도</button></h2>
@@ -1080,7 +1087,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v9.8 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v9.9 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 추정. 인챈트=컨테이너+match 규칙 */
@@ -1141,11 +1148,45 @@ async function rawLoad(k){
   try{ const v=localStorage.getItem(k); if(v) return JSON.parse(v);}catch(e){}
   return null;
 }
+/* 저장 압축: 기본값인 필드는 빼고 저장한다.
+   m:''(메모 없음), src:'api'(기본 출처)는 없을 때와 뜻이 같으므로 생략해도 무손실이다.
+   entry 1건 128→109바이트(약 15%). 기록이 쌓이는 도구라 이 차이가 몇 달을 벌어준다.
+   ※ 읽는 쪽은 undefined를 기본값처럼 다뤄야 한다(e.src==='man' 비교, e.m 진리값 검사). */
+function saveReplacer(k,v){
+  if(k==='m' && v==='') return undefined;
+  if(k==='src' && v==='api') return undefined;
+  return v;
+}
 async function rawSave(k,v){
-  const s=JSON.stringify(v);
+  const s=JSON.stringify(v, saveReplacer);
   try{ if(window.storage){ await window.storage.set(k,s); return true; } }catch(e){}
   try{ localStorage.setItem(k,s); return true; }catch(e){}
   return false;
+}
+/* ═══ 저장 용량 감시 ═══
+   이 도구의 가치는 '쌓인 기록'이다. 브라우저 저장 한계(보통 5MB)에 부딪히면
+   그 순간부터 조용히 저장이 안 된다 — 사용자는 탭을 닫고 나서야 알게 된다.
+   그래서 벽에 닿기 한참 전부터 알리고, 실패하면 즉시 내보내기를 권한다. */
+const QUOTA_MB=5;
+function storageMB(){
+  try{ const s=localStorage.getItem(KEY); return s? s.length/1048576 : 0; }catch(e){ return 0; }
+}
+function checkQuota(saveOk){
+  const b=document.getElementById('quotaBar'); if(!b) return;
+  const mb=storageMB(), pct=mb/QUOTA_MB*100;
+  if(saveOk===false){
+    b.classList.remove('hide');
+    b.innerHTML='<b>저장에 실패했습니다.</b> 브라우저 저장 공간이 찼을 수 있어요. '
+      +'지금 내보내서 보관하세요 — 창을 닫으면 최근 기록이 사라집니다. '
+      +'<button class="reLink" id="quotaGo">설정에서 내보내기</button>';
+  } else if(pct>=75){
+    b.classList.remove('hide');
+    b.innerHTML='저장 공간 '+mb.toFixed(1)+'MB / 약 '+QUOTA_MB+'MB ('+Math.round(pct)+'%). '
+      +'한계에 가까워지면 저장이 멈춥니다. 오래된 종목을 정리하거나 백업해 두세요. '
+      +'<button class="reLink" id="quotaGo">설정 열기</button>';
+  } else { b.classList.add('hide'); return; }
+  const g=document.getElementById('quotaGo');
+  if(g) g.onclick=()=>{ switchTab('data'); window.scrollTo({top:0,behavior:scrollBehavior()}); };
 }
 let saveTimer=null;
 function saveData(){
@@ -1156,8 +1197,9 @@ function saveData(){
   saveTimer=setTimeout(async ()=>{
     S.savedAt=Date.now();
     const ok=await rawSave(KEY,S);
-    dot.textContent= ok?'저장됨':'메모리만 (백업 필수)';
+    dot.textContent= ok?'저장됨':'저장 실패';
     dot.className= ok?'on':'';
+    checkQuota(ok);
   },250);
 }
 /* LOCAL: 이 기기 전용 설정(비번 해시·GitHub 토큰·Gist ID). S와 분리 보관 */
