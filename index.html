@@ -52,6 +52,14 @@
   · 지표는 지점마다 재계산하지 말고 누적합 시리즈(maSeries/bollSeries)를 쓸 것.
   · DOM/SVG 요소 수는 데이터 양에 비례해 늘리지 말 것(터치영역·목록 행 상한).
   · 기능을 추가하면 perf.mjs로 재측정할 것. 폰은 이 측정치의 3~5배로 보면 된다.
+■ ★시간대: API의 date_update는 UTC0다. 반드시 kstOf()를 거쳐 한국시간으로
+  바꿔서 날짜 버킷과 시각 표시에 쓸 것. 문자열을 그대로 slice 하면
+  하루 경계가 한국 오전 9시가 되고, 표시 시각이 9시간 어긋난다.
+  앱과 수집기(kstOf/kstParts)가 같은 규칙을 써야 병합이 어긋나지 않는다.
+■ 수동 새로고침 버튼은 없앴다(v9.7). 갱신 통로는 셋: 앱 시작 · 시세/골드 탭 진입 ·
+  화면 복귀(visibilitychange). 모두 AUTO_MS(10분) 쿨다운을 지킨다.
+  단, 실패했을 때 다시 시도할 방법은 반드시 남긴다 — '수집 상태' 제목 옆의
+  '다시 시도'가 그 탈출구다. 자동화가 있어도 사용자가 막힐 구멍을 만들지 말 것.
 ■ 검증은 '오류 없이 뜨는가'가 아니라 '숫자가 맞는가'로 한다. verify.mjs는
   손으로 계산 가능한 데이터를 넣고 화면의 21개 값(등락률·수익률·현재위치·중앙값·
   변동계수·변동폭·낙폭·굴비환산·일중위치·수급비중·상관·수수료·손익 등)을
@@ -314,7 +322,15 @@ header{position:sticky; top:0; z-index:30; background:rgba(15,20,28,.94);
 header h1{margin:0; font-size:14px; font-weight:700; letter-spacing:.01em; flex:1}
 header h1 b{color:var(--gold); font-weight:700}
 .hRight{display:flex; align-items:center; gap:10px}
-#saveDot,#who{font-size:11px; color:var(--dim)}
+#saveDot,#who,#busyDot{font-size:11px; color:var(--dim)}
+#busyDot{color:var(--gold)}
+#busyDot.hide{display:none !important}
+/* 버튼을 없앤 자리의 최소한의 탈출구 — 실패했을 때 다시 시도할 방법은 남긴다 */
+.reLink{background:none; border:0; color:var(--dim); font-size:11px; cursor:pointer;
+  text-transform:none; letter-spacing:0; padding:4px 6px; margin-left:8px;
+  text-decoration:underline; text-underline-offset:3px; position:relative}
+.reLink::after{content:''; position:absolute; inset:-10px}
+.reLink:hover{color:var(--gold)}
 #saveDot.on{color:var(--ok)}
 #motionBtn{background:none; border:0; color:var(--dim); padding:6px 2px; font-size:11px;
   cursor:pointer; position:relative; text-decoration:underline; text-underline-offset:3px;
@@ -583,12 +599,13 @@ body.L-mobile section.hide{display:none !important}
     <h1>망전 <b>시세 노트</b></h1>
     <div class="hRight">
       <span id="who"></span>
+      <span id="busyDot" class="hide">갱신 중</span>
       <span id="saveDot">저장 대기</span>
       <button id="layoutBtn" aria-label="화면 배치 전환">배치 자동</button>
       <button id="motionBtn" aria-label="화면 움직임 줄이기">움직임 켬</button>
     </div>
   </div>
-  <div class="sub" id="subLine">v9.6 · 2026-07-25 — 로딩 중…</div>
+  <div class="sub" id="subLine">v9.8 · 2026-07-25 — 로딩 중…</div>
 </header>
 <nav>
   <button class="on" data-tab="chart">시세</button>
@@ -670,10 +687,8 @@ body.L-mobile section.hide{display:none !important}
   </div>
 
   <div class="card">
-    <h2>수집</h2>
+    <h2>수집 상태 <button id="btnRefresh" class="reLink">다시 시도</button></h2>
     <div id="bkBanner" class="banner hide"></div>
-    <button class="btn" id="btnRefresh" style="margin-top:0">시세 새로고침</button>
-    <button class="btn sm ghost" id="btnDeep">1주치 전부 다시 받기</button>
     <div id="fetchStat"></div>
     <div class="jsonChips" id="pickChips"></div>
   </div>
@@ -964,7 +979,9 @@ body.L-mobile section.hide{display:none !important}
     <input id="apiKey">
     <label>거래소 수수료 %</label>
     <input id="feeRate" inputmode="decimal">
-    <label>앱 열 때 자동 새로고침 (1시간 쿨다운)</label>
+    <button class="btn sm ghost" id="btnDeep">1주치 전부 다시 받기</button>
+    <div class="hint">기록이 어긋났을 때만 쓰세요. 종목이 많으면 시간이 걸립니다.</div>
+    <label>자동 갱신 (10분 쿨다운 · 앱 시작·탭 진입·화면 복귀 시)</label>
     <select id="autoSel"><option value="1">켬</option><option value="0">끔</option></select>
     <label>원격 수집 데이터 URL (비우면 같은 사이트의 data/prices.json 자동 사용)</label>
     <input id="remoteUrl" placeholder="자동: data/prices.json">
@@ -1048,7 +1065,7 @@ const CONFIG={
   MAX_PAGES:5,        // 평상시(최근분만 갱신)
   MAX_PAGES_FIRST:60, // 최초 수집: 1주치 전부(500건×60=3만건까지)
   FETCH_DELAY:350, PAGE_DELAY:250, SCAN_DELAY:300,
-  CURVE_MAX:300, AUTO_MS:3600e3, BACKUP_REMIND_DAYS:7, EV_WIN:7, EV_TOL:3
+  CURVE_MAX:300, AUTO_MS:600e3,   /* 10분 — 열면 최신이라는 느낌을 주되 과도한 호출은 막는다 */ BACKUP_REMIND_DAYS:7, EV_WIN:7, EV_TOL:3
 };
 const KEY='mhero-note-v5';            // 본 데이터(S) — Gist 동기화 대상
 const LKEY='mhero-local';             // 이 기기 전용(LOCAL) — 절대 동기화/내보내기 금지
@@ -1063,7 +1080,7 @@ const GIST_API='https://api.github.com/gists';
 const DEFAULT_GIST='6c8235a19bcba55a48e266ea7411e3e5';
 const API_BASE='https://open.api.nexon.com/heroes/v2/marketplace/market-history';
 const DEFAULT_KEY='live_37ea0b9ca5e3d334619475cb4f05385313075ef507279894ef77bdd6a2bbf00aefe8d04e6d233bd35cf2fabdeb93fb0d';
-const BUILD='v9.6 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
+const BUILD='v9.8 · 2026-07-25';   // ★배포본이 최신인지 눈으로 확인하는 용도. 수정할 때마다 올릴 것
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* 카탈로그: ok:1=이름 검증됨 / 없으면 추정. 인챈트=컨테이너+match 규칙 */
@@ -1393,6 +1410,20 @@ function goolbiRateAt(d){
   for(const e of es){ if(e.d<=d) r=e.p; else break; }
   return r;
 }
+/* ★API의 date_update는 UTC0다(문서 명시). 그대로 자르면
+   ① 하루 경계가 UTC 자정 = 한국 오전 9시가 되어, 한국 새벽 0~9시 거래가 전날로 묶이고
+   ② 표시되는 시각이 UTC라 "고 14시"가 실제로는 한국 밤 11시를 뜻하게 된다.
+   한국 게임을 한국 시간으로 보는 도구이므로 KST(UTC+9)로 변환해서 쓴다.
+   ※ 이 함수를 거치지 않고 문자열을 직접 slice 하지 말 것. */
+function kstOf(iso){
+  if(!iso) return null;
+  let t=String(iso);
+  if(!/[Zz]|[+\-]\d{2}:?\d{2}$/.test(t)) t+='Z';   // 표기가 없으면 UTC로 간주
+  const ms=Date.parse(t);
+  if(isNaN(ms)) return null;
+  const k=new Date(ms+9*3600e3);
+  return { d:k.toISOString().slice(0,10), h:k.getUTCHours(), ms };
+}
 function toKrw(gold){ const r=goolbiRate(); return r==null?null:gold/1e7*r; }
 function today(){ const t=new Date(),z=n=>String(n).padStart(2,'0');
   return t.getFullYear()+'-'+z(t.getMonth()+1)+'-'+z(t.getDate()); }
@@ -1420,7 +1451,7 @@ const METRIC_DOC={
     c:'정렬 후 가운데 값 (짝수면 가운데 두 값의 평균)',
     w:'평균은 극단값 하나에 끌려간다 — 인챈트 응답에는 18골드 같은 이상 체결이 섞인다. 현재가가 중앙값보다 크게 높으면 비싼 구간이다.'},
   candle:{t:'캔들(봉)', d:'몸통은 그날 시가~종가, 수염은 최저~최고. 빨강은 오른 날, 파랑은 내린 날.',
-    c:'시가 = 그날 첫 시간대 값 · 종가 = 마지막 시간대 값',
+    c:'시가 = 그날 첫 시간대 값 · 종가 = 마지막 시간대 값 (하루 경계는 한국시간 자정)',
     w:'수염이 서 있는 가로 위치는 그 값이 실제로 발생한 시각이다(보통 캔들차트는 이 정보를 버린다). 시가·종가가 없는 옛 기록은 고저 막대로만 그려진다.'},
   cv:{t:'변동계수', d:'가격 대비 흔들림의 크기. 가격대가 다른 종목끼리 변동성을 비교할 때 쓴다.',
     c:'표준편차 ÷ 평균', w:'값이 클수록 가격 대비 출렁임이 크다. 방향(오름/내림)은 알려주지 않는다.'},
@@ -1428,8 +1459,8 @@ const METRIC_DOC={
     c:'변동폭 = 일간 등락률의 표준편차 · 낙폭 = min((현재 − 이전 고점) ÷ 이전 고점)', w:'낙폭은 항상 0 이하다. 최악의 순간을 보여주는 값이라 평상시 위험보다 크게 나온다.'},
   act:{t:'거래된 시간', d:'★거래량이 아니다. 그날 거래가 한 건이라도 잡힌 시간대의 수(최대 24).',
     c:'해당 날짜에 응답에 포함된 시간 단위 기록 수', w:'API가 시간당 집계만 주기 때문에 실제 거래 수량은 알 수 없다. 유동성의 대용치로만 쓸 것. 수동 보정에 직접 넣은 값은 매물 수 그대로다.'},
-  range:{t:'일중 고저', d:'그날 최저가와 최고가. 옆의 시각은 그 값이 나온 시간대.',
-    c:'하루 안 시간별 기록의 min·max와 그 발생 시각', w:'평균가만 보면 하루 안의 진폭이 감춰진다. 수염이 서 있는 가로 위치가 발생 시각이다.'},
+  range:{t:'일중 고저', d:'그날 최저가와 최고가. 옆의 시각은 그 값이 나온 시간대(한국시간).',
+    c:'하루 안 시간별 기록의 min·max와 그 발생 시각. API는 UTC로 주므로 +9시간 해 한국시간으로 환산', w:'평균가만 보면 하루 안의 진폭이 감춰진다. 수염이 서 있는 가로 위치가 발생 시각이다.'},
   idx:{t:'물가지수', d:'여러 종목의 가격을 거래량으로 가중평균해 하나의 값으로 묶고, 시작 시점을 100으로 맞춘 것.',
     c:'Σ(가격 × 가중치) ÷ Σ(가중치), 시작값 = 100', w:'단순 합산하면 비싼 종목이 지수를 지배하므로 가중한다. 가중치는 거래량 대용치인 거래된 시간이다.'},
   excess:{t:'초과 변동', d:'이벤트 후 이 종목의 변동에서 같은 기간 시장 전체의 변동을 뺀 값.',
@@ -1631,8 +1662,8 @@ function ingestRecords(it, recs, rawJ){
   const byDay={};
   recs.forEach(r=>{
     const p=getPath(r,it.priceKey); if(typeof p!=='number') return;
-    let d=today();
-    if(dk){ const m=String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if(m) d=m[0]; }
+    const kk0 = dk? kstOf(r[dk]) : null;
+    const d = kk0? kk0.d : today();
     if(!byDay[d]) byDay[d]={sum:0,n:0,cnt:0,lo:Infinity,hi:-Infinity,loH:null,hiH:null,
                              o:null,c:null,oT:null,cT:null,vals:[]};
     byDay[d].sum+=p; byDay[d].n++;
@@ -1640,11 +1671,10 @@ function ingestRecords(it, recs, rawJ){
     /* ★이윤선(2006) '시간흐름을 반영하는 캔들스틱': 전통 캔들스틱은 고가·저가가
        '언제' 났는지를 버려서, 하루 흐름이 전혀 다른 날들이 같은 모양으로 그려진다.
        우리 응답은 시간당 스냅샷이므로 발생 시각(0~23)을 함께 남긴다. */
-    let hh=null;
-    if(dk){ const m=String(r[dk]).match(/T(\d{2}):/); if(m) hh=+m[1]; }
-    /* 시가·종가: 그날 가장 이른/늦은 시간대의 값. 시간 단위 스냅샷이 있으므로 계산 가능하다.
-       중앙값 계산을 위해 그날의 시간별 값도 모아둔다(평균은 극단값에 끌려간다). */
-    const ts=dk? String(r[dk]) : '';
+    const kk = kk0;
+    const hh = kk? kk.h : null;
+    /* 시가·종가: 그날 가장 이른/늦은 시각의 값(정렬은 원본 시각 순서로 해도 동일) */
+    const ts = kk? String(kk.ms) : '';
     if(byDay[d].oT===null||ts<byDay[d].oT){ byDay[d].oT=ts; byDay[d].o=p; }
     if(byDay[d].cT===null||ts>byDay[d].cT){ byDay[d].cT=ts; byDay[d].c=p; }
     byDay[d].vals.push(p);
@@ -1707,7 +1737,8 @@ async function fetchNotices(){
       const t=(e.title||'').trim(); if(!t) return;
       const raw=e.date_event_start||e.date||e.date_create;
       if(!raw) return;
-      const d=String(raw).slice(0,10);
+      const kk=kstOf(raw);
+      const d= kk? kk.d : String(raw).slice(0,10);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
       const sig=d+'|'+t;
       if(dead.indexOf(sig)>-1) return;
@@ -1804,9 +1835,27 @@ async function mergeRemote(){
     return '원격 수집: '+matched+'개 종목, 신규 '+tot+'건 병합';
   }catch(e){ return '원격 수집 실패: '+e.message; }
 }
+/* ★동시 실행 방지 + 시도 즉시 쿨다운 기록.
+   실패했을 때 lastFetch가 갱신되지 않으면, 자동 갱신 통로(탭 진입·화면 복귀)가
+   매번 재시도를 걸어 API를 두들긴다. 성공 여부와 무관하게 '시도한 시각'을 남긴다. */
+/* 버튼이 없으니 '언제 갱신됐는지'를 반드시 남긴다 — 사용자가 최신 여부를 판단할 유일한 단서 */
+function stampNow(){
+  return '<span style="color:var(--dim)">'
+    + new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})
+    + ' 갱신됨</span>';
+}
+let refreshing=false;
 async function refreshAll(){
+  if(refreshing) return;
+  refreshing=true;
+  if(S&&S.settings) S.settings.lastFetch=Date.now();
+  try{ await refreshAllInner(); } finally { refreshing=false; }
+}
+async function refreshAllInner(){
   const btn=document.getElementById('btnRefresh'), stat=document.getElementById('fetchStat');
-  btn.disabled=true; btn.textContent='조회 중…';
+  const busy=document.getElementById('busyDot');
+  if(busy) busy.classList.remove('hide');
+  if(btn) btn.disabled=true;
   const lines=[];
   const rm=await mergeRemote(); if(rm) lines.push(rm);
   const en=await fetchNotices(); if(en) lines.push(en);
@@ -1824,9 +1873,11 @@ async function refreshAll(){
     lines.push('시세는 자동수집(GitHub Actions)으로만 들어옵니다. 저장소에 수집기를 설치하면 이 페이지가 같은 주소의 data/prices.json을 자동으로 읽어요.');
     lines.push(...checkOrders());
     S.settings.lastFetch=Date.now();
+    lines.push(stampNow());
     stat.innerHTML=lines.join('<br>');
     recordCurve(); saveData(); renderAll();
-    btn.disabled=false; btn.textContent='시세 새로고침';
+    if(busy) busy.classList.add('hide');
+    if(btn) btn.disabled=false;
     return;
   }
   /* ★같은 apiName은 한 번만 받아서 나눠 쓴다.
@@ -1866,11 +1917,13 @@ async function refreshAll(){
     lines.push('→ 직접 호출이 막혀 있어요. 원격 수집 URL(설정) 또는 JSON 붙여넣기 비상구를 쓰세요.');
   lines.push(...checkOrders());
   S.settings.lastFetch=Date.now();
+  lines.push(stampNow());
   stat.innerHTML=lines.join('<br>');
   renderPick(anyPick);
   recordCurve(); saveData(); renderAll();
   FORCE_DEEP=false;
-  btn.disabled=false; btn.textContent='시세 새로고침';
+  if(busy) busy.classList.add('hide');
+  if(btn) btn.disabled=false;
 }
 function renderPick(pick){
   const box=document.getElementById('pickChips'); box.innerHTML='';
@@ -2925,7 +2978,7 @@ function renderChart(){
       +(e.o!=null&&e.c!=null? '<br>시가 <span class="num">'+fmt(it,e.o)+'</span> · 종가 <span class="num">'+fmt(it,e.c)+'</span>':'')
       +(e.lo!=null&&e.hi!=null? '<br>일중 <span class="num">'+fmt(it,e.lo)+' ~ '+fmt(it,e.hi)+'</span>'
          +((e.loH!=null||e.hiH!=null)? ' <span style="color:var(--dim)">(저 '
-            +(e.loH!=null?e.loH+'시':'?')+' · 고 '+(e.hiH!=null?e.hiH+'시':'?')+')</span>':'') :'')
+            +(e.loH!=null?e.loH+'시':'?')+' · 고 '+(e.hiH!=null?e.hiH+'시':'?')+' 한국시간)</span>':'') :'')
       +(it.unit==='gold'&&toKrw(e.p)!=null&&mode!=='krw'?' <span class="goldC">≈'+Math.round(toKrw(e.p)).toLocaleString()+'원</span>':'')
       +(e.s!=null&&e.s!==''?' · 활성 '+e.s+(e.src==='man'?'':'시간'):'')
       +(e.m?'<br><span style="color:var(--dim)">'+e.m+'</span>':'');
@@ -3707,6 +3760,13 @@ function confirmDlg(title,body,onYes){
   document.getElementById('dlgNo').onclick=()=>d.close();
   d.showModal();
 }
+/* 앱을 켜둔 채 시간이 흐르면 값이 낡는다. 시세/골드 탭으로 돌아올 때도
+   오래됐으면 조용히 갱신한다(버튼이 없으므로 이 자동화가 유일한 통로다). */
+function maybeRefresh(){
+  if(!S||!S.settings.autoRefresh) return;
+  if(Date.now()-(S.settings.lastFetch||0) <= CONFIG.AUTO_MS) return;
+  refreshAll();
+}
 function switchTab(id){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===id));
   ['chart','browse','analysis','gold','sim','data'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hide',t!==id));
@@ -3716,6 +3776,7 @@ function switchTab(id){
   if(id==='sim') renderSim();
   if(id==='data') renderItemList();
   if(id==='gold'){ renderGold(); renderGoldChart(); }
+  if(id==='chart'||id==='gold') maybeRefresh();
 }
 
 /* ═══════ 바인딩 ═══════ */
@@ -3795,6 +3856,10 @@ document.getElementById('bigBtn').onclick=()=>{ S.settings.chartBig=!S.settings.
 document.querySelectorAll('.ctBtn').forEach(b=>b.onclick=()=>{
   S.settings.chartType=b.dataset.ct; selIdx=null; saveData(); renderChart(); });
 /* 창 크기가 바뀌면 viewBox 비율이 달라지므로 다시 그린다(디바운스) */
+/* 폰에서 앱을 백그라운드에 뒀다 돌아오는 경우 */
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible') maybeRefresh();
+});
 let rzT=null;
 window.addEventListener('resize',()=>{ clearTimeout(rzT);
   rzT=setTimeout(()=>{ if(S){ renderChart(); renderGoldChart(); renderMarket(); } },200); });
