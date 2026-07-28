@@ -1,3 +1,40 @@
+# 자동수집 설치 파일 모음 — v12 (시간대 버그 수정)
+
+**`collect.mjs`를 반드시 교체하세요.**
+
+## 무엇이 잘못됐나 — 시간대
+
+넥슨 API의 `date_update`는 **UTC 기준**입니다(문서에 명시). 그런데 수집기와 앱이
+그 문자열을 그대로 잘라 쓰고 있었습니다. 결과:
+
+| 증상 | 내용 |
+|---|---|
+| 하루 경계가 어긋남 | UTC 자정 = **한국 오전 9시**. 한국 새벽 0~9시 거래가 **전날로** 묶임 |
+| 표시 시각이 9시간 밀림 | 툴팁의 "고 14시"가 실제로는 **한국 밤 11시** |
+
+한국 게임을 한국 시간으로 보는 도구인데 둘 다 틀렸습니다. 특히 두 번째는
+"언제 고가가 났나"를 정반대로 읽게 만듭니다(오후 → 심야).
+
+## 수정
+
+앱과 수집기 모두 `kstOf()`로 **한국시간(UTC+9)** 환산 후 사용합니다.
+- 날짜 버킷 = 한국시간 자정 기준
+- 고가·저가 발생 시각 = 한국시간
+- 골드 수급 기록 날짜 = 한국시간
+
+**앱과 수집기가 같은 규칙을 써야** 병합할 때 하루가 밀리지 않습니다. 한쪽만
+고치면 안 됩니다.
+
+## 참고
+이미 쌓인 기록은 UTC 기준으로 묶여 있습니다. 되돌릴 방법은 없고(원본 응답을
+보관하지 않음), 앞으로 쌓이는 것부터 정확합니다. 경계 근처 몇 시간의 오차라
+추세 판단에는 영향이 적습니다.
+
+---
+
+## 파일 1 — `collect.mjs` (교체 필수)
+
+```js
 // 망전 시세 자동 수집기 — GitHub Actions에서 하루 2회 실행
 // (유지보수 노트) 출력 형식은 툴의 mergeRemote()와 계약:
 //   data/prices.json = { updated, items:[{ apiName, match?, scale,
@@ -118,8 +155,8 @@ for (const c of cfg.items) {
   for (const r of recs) {
     const p = getPath(r, ent.priceKeyUsed);
     if (typeof p !== 'number') continue;
-    let d = new Date().toISOString().slice(0, 10);
-    if (dk) { const m = String(r[dk]).match(/\d{4}-\d{2}-\d{2}/); if (m) d = m[0]; }
+    const kk = dk ? kstOf(r[dk]) : null;
+    const d = kk ? kk.d : kstToday();
     if (!byDay[d]) byDay[d] = { sum: 0, n: 0, cnt: 0, lo: Infinity, hi: -Infinity,
                                  o: null, c: null, oT: null, cT: null, loH: null, hiH: null };
     byDay[d].sum += p; byDay[d].n++;
@@ -127,10 +164,8 @@ for (const c of cfg.items) {
     /* ★앱(ingestRecords)과 정확히 같은 규칙으로 만들어야 한다.
        특히 loH/hiH(고가·저가 발생 시각)를 빼먹으면, 원격 병합이 앱이 직접 받아둔
        시각 정보를 덮어써서 '시간 반영 캔들'이 무용지물이 된다. */
-    const ts = dk ? String(r[dk]) : '';
-    let hh = null;
-    const hm = ts.match(/T(\d{2}):/);
-    if (hm) hh = +hm[1];
+    const ts = kk ? String(kk.ms) : '';
+    const hh = kk ? kk.h : null;
     if (typeof r.min_price === 'number' && r.min_price > 0 && r.min_price < byDay[d].lo) {
       byDay[d].lo = r.min_price; byDay[d].loH = hh;
     }
@@ -277,6 +312,19 @@ async function probeNames() {
    서버(Actions)에서 도니 CORS 제약이 없다. 개인 기록용이므로 호출은
    최소로(실행당 1회) 유지할 것.
    ══════════════════════════════════════════════════════════════ */
+/* ★API의 date_update는 UTC0. 앱(kstOf)과 동일하게 한국시간으로 환산해야
+   날짜 버킷과 발생 시각이 어긋나지 않는다. 한쪽만 UTC면 병합 시 하루가 밀린다. */
+function kstOf(iso) {
+  if (!iso) return null;
+  let t = String(iso);
+  if (!/[Zz]|[+\-]\d{2}:?\d{2}$/.test(t)) t += 'Z';
+  const ms = Date.parse(t);
+  if (isNaN(ms)) return null;
+  const k = new Date(ms + 9 * 3600e3);
+  return { d: k.toISOString().slice(0, 10), h: k.getUTCHours(), ms };
+}
+function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
+
 const MARKET_PAGE = 'https://market.nexon.com/ko/trade-list/MHERO?order=register&list=1';
 /* ★실측(번들에서 추출): 넥슨마켓이 쓰는 백엔드 베이스 4종.
    goodeal/v1 은 경로 존재 여부와 무관하게 게이트웨이가
@@ -396,7 +444,7 @@ async function collectGoldFlow() {
   let db = { updated: '', flow: [] };
   if (fs.existsSync(file)) { try { db = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {} }
   if (!Array.isArray(db.flow)) db.flow = [];
-  const d = new Date().toISOString().slice(0, 10);
+  const d = kstToday();
   const rec = { d, buy, sell };
   const i = db.flow.findIndex(x => x.d === d);
   if (i > -1) db.flow[i] = rec; else db.flow.push(rec);
@@ -413,3 +461,158 @@ await collectGoldFlow();
 await discoverMarket();
 await probeNames();
 await collectNotices();
+```
+
+---
+
+## 파일 2 — `.github/workflows/collect.yml` (변경 없음)
+
+```yaml
+# 망전 시세 자동 수집 — 매일 KST 오전 9시·오후 6시 (크론은 UTC 기준)
+# 수동 실행: Actions 탭 → collect-prices → Run workflow
+name: collect-prices
+on:
+  schedule:
+    # 매시간 — 새 체결이 생기면 최대 1시간 안에 잡힌다.
+    # 골드처럼 기록이 드문 종목도 발생 즉시 놓치지 않는다.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 시세 수집
+        run: node collect.mjs
+        env:
+          NEXON_API_KEY: ${{ secrets.NEXON_API_KEY }}
+      - name: 커밋·푸시
+        run: |
+          git config user.name "price-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/prices.json
+          git diff --cached --quiet || git commit -m "collect $(date -u +%F_%H%M)"
+          git push
+```
+
+---
+
+## 파일 3 — `items.json` (변경 없음)
+
+```json
+{
+  "marketDiscover": false,
+  "notices": [
+    "/heroes/v1/notice-event"
+  ],
+  "items": [
+    {
+      "name": "골드 시세(1천만골)",
+      "apiName": "골드",
+      "scale": 10
+    },
+    {
+      "name": "와드네의 결정",
+      "apiName": "와드네의 결정",
+      "scale": 1
+    },
+    {
+      "name": "고급 강화의 비약",
+      "apiName": "고급 강화의 비약",
+      "scale": 1
+    },
+    {
+      "name": "게브네의 강화석",
+      "apiName": "게브네의 강화석",
+      "scale": 1
+    },
+    {
+      "name": "귀속 해제 포션",
+      "apiName": "귀속 해제 포션",
+      "scale": 1
+    },
+    {
+      "name": "강화의 비약",
+      "apiName": "강화의 비약",
+      "scale": 1
+    },
+    {
+      "name": "찬미",
+      "apiName": "인챈트 스크롤",
+      "match": "찬미",
+      "scale": 1
+    },
+    {
+      "name": "일격",
+      "apiName": "인챈트 스크롤",
+      "match": "일격",
+      "scale": 1
+    },
+    {
+      "name": "격노",
+      "apiName": "인챈트 스크롤",
+      "match": "격노",
+      "scale": 1
+    },
+    {
+      "name": "신비",
+      "apiName": "인챈트 스크롤",
+      "match": "신비",
+      "scale": 1
+    },
+    {
+      "name": "처단하는",
+      "apiName": "인챈트 스크롤",
+      "match": "처단하는",
+      "scale": 1
+    },
+    {
+      "name": "물드는",
+      "apiName": "인챈트 스크롤",
+      "match": "물드는",
+      "scale": 1
+    },
+    {
+      "name": "비극의",
+      "apiName": "인챈트 스크롤",
+      "match": "비극의",
+      "scale": 1
+    },
+    {
+      "name": "공허한",
+      "apiName": "인챈트 스크롤",
+      "match": "공허한",
+      "scale": 1
+    },
+    {
+      "name": "사념",
+      "apiName": "인챈트 스크롤",
+      "match": "사념",
+      "scale": 1
+    },
+    {
+      "name": "가득한",
+      "apiName": "인챈트 스크롤",
+      "match": "가득한",
+      "scale": 1
+    },
+    {
+      "name": "고조되는",
+      "apiName": "인챈트 스크롤",
+      "match": "고조되는",
+      "scale": 1
+    },
+    {
+      "name": "질풍의",
+      "apiName": "인챈트 스크롤",
+      "match": "질풍의",
+      "scale": 1
+    }
+  ],
+  "probe": []
+}```
